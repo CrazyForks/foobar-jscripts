@@ -1,0 +1,896 @@
+﻿// vim: set ft=javascript fileencoding=utf-8 bomb et:
+
+// Required:
+// * foobar2000 v1.3.3+
+// * WSH Panel Mod Plus v1.5.7+
+//
+// Import: (only 1 file)
+// If you do not want to paste the hole file contents to wshmp's edit area,
+// just import this file in PREPROCESSOR like bellow:
+// (apply file path to your locals').
+//
+// ==PREPROCESSOR==
+// @author "Elia"
+// @version "2016-10-05 16:04"
+// @import "e:\github\foobar2000-jscripts\scripts\pbc.txt"
+// @site "(TODO: github repo)"
+// ==/PREPROCESSOR==
+
+var SCRIPT_NAME = "Playback Control Panel";
+var dbg_mode = true;
+
+function dbg_trace(str) {
+    dbg_mode && fb.trace(str);
+}
+
+// Properties
+
+var shuffleType = window.GetProperty("shuffleType", 4);
+
+var tf_length = fb.TitleFormat("[%length%]");
+
+
+// Animator Class: ==============================================
+
+function Animator(itv) {
+    this.timer = null;
+    this.interval = itv || 30;
+}
+
+Animator.prototype = {
+    _clearTimer: function() {
+        this.timer && window.ClearInterval(this.timer);
+        this.timer = null;
+    },
+    _easing: function (p) {
+        return p;
+    },
+    start: function(duration, process, easing, onStop) {
+        var self = this;
+        var startTime = +new Date;
+        var easing = easing || this._easing;
+        this._clearTimer();
+        this.timer = window.SetInterval(function() {
+            var p = (new Date - startTime) / duration;
+            if (p < 1.0) {
+                process(easing(p));
+            } else {
+                self._clearTimer();
+                process(easing(1.0));
+                onStop && onStop();
+            }
+        }, this.interval);
+    },
+
+}
+
+
+// Button Class ========================================
+// may be extended by your self.
+
+function Button(img, w, h, func, options) {
+    this.img = img;
+    this.w = w;
+    this.h = h;
+    this.func = func;
+    this.state = 0;
+    this.options = options; // Not used yet
+}
+
+Button.prototype = {
+    isMouseIn: function(x, y) {
+        return x > this.x && x < this.x + this.w && y > this.y && y < this.y + this.h;
+    },
+    repaint: function() {
+        window.RepaintRect(this.x, this.y, this.w, this.h);
+    },
+    setXY: function(x, y) {
+        this.x = x;
+        this.y = y;
+    },
+    setImg: function(img) {
+        this.img = img;
+    },
+    changeState: function(state) {
+        if (state == this.state) return;
+        this.state = state;
+        this.repaint();
+    },
+    // Mouse events:
+    // TODO:  may should be merged;
+    down: function(x, y) {
+        this.isMouseIn(x, y) ? this.changeState(2) : null;
+        return this.state == 2;
+    },
+    up: function (x, y) {
+        var stateOld = this.state;
+        this.isMouseIn(x, y) ? this.changeState(1) : this.changeState(0);
+        if (stateOld == 2 && this.state == 1) {
+            this.func && this.func(x, y);
+            return true;
+        }
+        return false;
+    },
+    move: function(x, y) {
+        if (this.state != 2) {
+            this.isMouseIn(x, y) ? this.changeState(1) : this.changeState(0);
+        }
+    },
+    leave: function() {
+        this.changeState(0);
+        // TODO:  Keep btn pressed down when menu pop up
+    },
+    // xx, yy: offset from this.x, this.y;
+    draw: function(gr, xx, yy) {
+        var x = this.x;
+        var y = this.y;
+        if (arguments.length == 3) {
+            x += xx;
+            y += yy;
+        }
+        var alpha = (this.state == 2 ? 128 : this.state == 1 ? 200 : 255);
+        var img = this.img;
+        gr.DrawImage(img, x, y, img.Width, img.Height, 0, 0, img.Width, img.Height, 0, alpha);
+    },
+
+};
+
+
+var Buttons = {};
+
+function getOrderImg(order) {
+    if (typeof order == 'undefined') {
+        order = fb.PlaybackOrder;
+    }
+    var imgs = [
+        Images.normal,
+        Images.repeat,
+        Images.repeat1,
+        Images.shuffle
+    ];
+    return (order > 2 ? imgs[3] : imgs[order]);
+}
+
+function getPlayImg() {
+    var img;
+    if (!fb.IsPlaying || fb.IsPlaying && fb.IsPaused) {
+        img = Images.play;
+    } else {
+        img = Images.pause;
+    }
+    return img;
+}
+
+function getButtons() {
+    var w = 40,
+        img = null;
+
+    // get buttons
+    Buttons.prev = new Button(Images.prev, w, w, onPrev);
+    Buttons.next = new Button(Images.next, w, w, onNext);
+    Buttons.playOrPause = new Button(getPlayImg(), w, w, onPlayOrPause);
+    Buttons.order = new Button(getOrderImg(), w, w, onOrder);
+    Buttons.volume = new Button(Images.volume, w, w, onVolume);
+
+    function onPrev() {
+        fb.Prev();
+    };
+    function onNext() {
+        fb.Next();
+    };
+    function onPlayOrPause() {
+        fb.PlayOrPause();
+    };
+    function onVolume() {
+
+    }
+    function onOrder() {
+        var order = fb.PlaybackOrder;
+        if (order < 2) {
+            fb.PlaybackOrder += 1;
+        } else if (order == 2) {
+            fb.PlaybackOrder = shuffleType;
+        } else {
+            fb.PlaybackOrder = 0;
+        }
+    }
+
+}
+
+function adjustButtonsLayout() {
+    var pad = 10,
+        bw = Buttons.prev.w,
+        bx, by;
+    for (var i in Buttons) {
+        Buttons[i].setXY(0, 0);
+    }
+
+    bx = ww - bw * 5 - pad * 5;
+    by = Math.round((wh - bw) / 2);
+
+    Buttons.prev.setXY(bx, by);
+    bx += pad + bw;
+    Buttons.playOrPause.setXY(bx, by);
+    bx += pad + bw;
+    Buttons.next.setXY(bx, by);
+    bx += pad + bw;
+    Buttons.order.setXY(bx, by);
+    bx += pad + bw;
+    Buttons.volume.setXY(bx, by);
+
+}
+
+
+
+
+var Font = {};
+var Color = {};
+var Images = {};
+Font.assets = gdi.Font("segoe mdl2 assets", 15);
+
+function getImages() {
+    var g, w, img = null;
+    var sf = StringFormat(1, 1);
+
+    function getImg(code, font, color, w, h) {
+        var img = gdi.CreateImage(w, h);
+        var gb = img.GetGraphics();
+        gb.SetTextRenderingHint(3);
+        gb.DrawString(code, font, color, 0, 0, w, h, sf);
+        gb.DrawString(code, font, color, 0, 0, w, h, sf);
+        gb.SetTextRenderingHint(0);
+        img.ReleaseGraphics(gb);
+        return img;
+    }
+
+    var icons = {
+        "prev": "\ue100",
+        "pause": "\ue103",
+        "play": "\ue102",
+        "next": "\ue101",
+        "volume": "\ue15d",
+        "shuffle": "\ue14b",
+        "repeat": "\ue149",
+        "repeat1": "\ue1cc",
+        "normal": "\ue13c",
+    };
+    var w = 40;
+    var font_assets = gdi.Font(Font.assets.Name, 15);
+
+
+    for (var i in icons) {
+        Images[i] = getImg(icons[i], font_assets, Color.fg, w, w);
+    }
+
+    // Nocover image
+    font_assets = gdi.Font(Font.assets.Name, 40);
+    Images.nocover = gdi.CreateImage(85, 85);
+    g = Images.nocover.GetGraphics();
+    g.FillSolidRect(0, 0, 85, 85, RGB(35, 35, 35));
+    g.SetTextRenderingHint(4);
+    g.DrawString("\ue958", font_assets, setAlpha(Color.fg, 128), 0, 0, 85, 85, sf);
+    g.SetTextRenderingHint(0);
+    Images.nocover.ReleaseGraphics(g);
+
+    // Slider nob images
+    w = 18;
+    Images.nob = gdi.CreateImage(w, w);
+    g = Images.nob.GetGraphics();
+    g.SetSmoothingMode(2);
+    g.FillEllipse(1, 1, w - 3, w - 3, Color.fg);
+    g.FillEllipse(3, 3, w - 7, w - 7, Color.bg);
+    g.SetSmoothingMode(0);
+    Images.nob.ReleaseGraphics(g);
+
+    font_assets.Dispose();
+
+}
+
+function getFonts() {
+    var font_name = "segoe ui"; // semibold";
+    if (!utils.CheckFont(font_name)) {
+        font_name = "tahoma";
+    }
+    Font.time = gdi.font(font_name, 12);
+    Font.small = gdi.Font(font_name, 12);
+    Font.title = gdi.Font(font_name, 14);
+}
+
+function getColor() {
+    Color = {};
+    Color.bg = RGB(16, 16, 16);
+    Color.fg = RGB(235, 235, 235);
+}
+
+
+// AlbumArt obj ===================================================
+
+
+var AlbumArtId = {
+	front: 0,
+	back: 1,
+	disc: 2,
+	icon: 3,
+	artist: 4
+}
+
+AlbumArt = {
+
+    timer: null,
+
+    // Callback function recieve 3 params: metadb, art_id, image;
+    getAsync: function (metadb, artID, callback, options) {
+        var embedded, force;
+        if (options && typeof options == 'object') {
+            embedded = options.embedded || false;
+            force = options.force || false;
+        }
+        if (!metadb) {
+            return null;
+        }
+        var img;
+        window.SetTimeout(function() {
+            if (embedded && metadb.Path.indexOf("://") == -1) {
+                img = utils.GetAlbumArtEmbedded(metadb.RawPath, artID);
+                if (!img && force) {
+                    for (var i in AlbumArtId) {
+                        if (AlbumArtId[i] == AlbumArtId.icon) continue; // do not load icon images
+                        img = utils.GetAlbumArtV2(metadb, AlbumArtId[i], false);
+                        if (img) break;
+                    }
+                }
+            } else {
+                img = utils.GetAlbumArtV2(metadb, artID, false);
+                // if force == true, try to search all type of album art before
+                // got one.
+                if (force && !img) {
+                    for (var i in AlbumArtId) {
+                        if (AlbumArtId[i] == artID) continue;
+                        if (AlbumArtId[i] == AlbumArtId.icon) continue; // do not load icon images
+                        img = utils.GetAlbumArtV2(metadb, AlbumArtId[i], false);
+                        if (img) break;
+                    }
+                }
+            }
+            callback && callback(metadb, artID, img);
+            return null;
+        }, 15);
+    },
+    download: function () {
+        // TODO
+    },
+}
+
+
+
+
+
+Image = {
+
+    loadAsync: function() {
+    },
+
+    clone: function(img) {
+        if (!img) return null;
+        return img.Clone(0, 0, img.Width, img.Height); 
+    },
+
+}
+
+
+function Slider (img, height, getpos, setpos) {
+    this.img = img; // nob image
+    this.height = height; // visual height
+    this.visible = true;
+    this.getpos = getpos || function() {};
+    this.setpos = setpos || function() { return -1; };
+
+    this.pos = this.getpos();
+    this.size(0, 0, 0, 0);
+}
+
+Slider.prototype = {
+    isMouseIn: function(x, y) {
+        var l = (this.img ? this.img.Width / 2 : 0);
+        return (x > this.x - l && x < this.x + this.w + l && y > this.y && y < this.y + this.h);
+    },
+    repaint: function() {
+        var l = (this.img ? this.img.Width / 2 : 0);
+        window.RepaintRect(this.x - l, this.y, this.w + l, this.h);
+    },
+    refresh: function() {
+        this.pos = this.getpos();
+        this.repaint();
+    },
+    draw: function(gr) {
+        if (!this.visible) return;
+        if (this.height > this.h) return;
+        if (this.w <= 0) return;
+        var yoff = (this.h - this.height) / 2,
+            img_w;
+        gr.FillSolidRect(this.x, this.y + yoff, this.w, this.height, setAlpha(0xffffffff, 128));
+        if (this.pos > 0 || this.pos <= 1) {
+            gr.FillSolidRect(this.x, this.y + yoff, this.w * this.pos, this.height, 0xffffffff);
+        }
+        if (this.img && isNumeric(this.pos) && this.pos >= 0) {
+            img_w = this.img.Width;
+            gr.DrawImage(this.img, this.x + this.w * this.pos - img_w / 2, (this.h - this.img.Height) / 2 + this.y, img_w, this.img.Height, 
+                0, 0, this.img.Width, this.img.Height, 0, 255);
+        }
+
+    },
+    size: function(x, y, w, h) {
+        this.x = x;
+        this.y = y;
+        this.w = w;
+        this.h = h;
+    },
+    // Mouse events:
+    move: function(x, y) {
+        if (!this.visible) return;
+        if (this.drag) {
+            x -= this.x;
+            this.pos = x < 0 ? 0 : x > this.w ? 1 : x / this.w;
+            this.repaint();
+            this.setpos(this.pos);
+        };
+    },
+    down: function(x, y) {
+        if (this.isMouseIn(x, y)) {
+            this.drag = true;
+            this.move(x, y);
+        }
+    },
+    up: function(x, y) {
+        this.drag = false;
+    },
+}
+
+function debounce(fn, delay) {
+    var timer = null,
+        delay = delay || 250;
+    return function() {
+        var context = this,
+            args = arguments;
+        timer && window.ClearTimeout(timer);
+        timer = window.SetTimeout(function() {
+            fn.apply(context, args);
+        }, delay);
+    }
+}
+            
+
+function throttle(fn, threshhold, scope) {
+    threshhold || (threshhold = 250);
+    var last,
+        deferTimer;
+    return function () {
+        var context = scope || this;
+
+        var now = +new Date,
+            args = arguments;
+        if (last && now < last + threshhold) {
+            // hold on to it
+            window.clearTimeout(deferTimer);
+            deferTimer = window.setTimeout(function () {
+                last = now;
+                fn.apply(context, args);
+            }, threshhold);
+        } else {
+            last = now;
+            fn.apply(context, args);
+        }
+    };
+}
+
+
+function Nowplaying() {
+    this.state = 0;
+    this.func = null; // onClick function
+    this.img = null; // displayed image of album art.
+    this.imgcache = null; // raw image of album art.
+    this.nocover = Images.nocover;
+
+    // tf objects
+    this.tf_title = fb.TitleFormat("%title%");
+    this.tf_art = fb.TitleFormat("$if2([%artist%],未知艺人)");
+    this.tf_art_alb = fb.TitleFormat("%album artist%^^%album%");
+
+    this.albumOld = "#@!";
+}
+extend(Nowplaying, Button);
+Nowplaying = new Nowplaying();
+
+Nowplaying.getAlbumArt = function(metadb) {
+
+    var alb_str;
+    var self = this;
+
+    // callback
+    this.onGetAlbumArt = function (metadb, artId, image) {
+        // Cache image for other usage.
+        self.imgcache = image;
+        if (self.imgcache && self.h > 10) {
+            self.img = self.imgcache.Resize(self.h - 10, self.h - 10, 7);
+        }
+        // Gen nocover image, should be exec only once.
+        if (!self.img && (!self.nocover || self.nocover.Width != self.h - 10)) {
+            self.nocover = Images.nocover.Resize(self.h - 10, self.h - 10, 7);
+        }
+        self.repaint();
+    }
+
+    // get on album switch
+    if (metadb) {
+        alb_str = this.tf_art_alb.EvalWithMetadb(metadb);
+        if (alb_str != this.albumOld) {
+            this.img = null;
+            this.imgcache = null;
+            AlbumArt.getAsync(metadb, AlbumArtId.front, this.onGetAlbumArt, { force: true });
+            this.albumOld = alb_str;
+        }
+    } else {
+        this.imgcache = null;
+        this.img = null;
+    }
+
+    CollectGarbage();
+    this.repaint();
+
+}
+
+Nowplaying.draw = function(gr) {
+    if (!fb.IsPlaying) return;
+    if (this.h < wh) return;
+
+    // background color
+    var overlay = 0xffffffff;
+    if (this.state == 1) {
+        overlay = setAlpha(overlay, 15);
+    } else if (this.state == 2) {
+        overlay = setAlpha(overlay, 10);
+    }
+    this.state && gr.FillSolidRect(this.x, this.y, this.w, this.h, overlay);
+
+    // album art image
+    if (this.img) {
+        gr.DrawImage(this.img,  this.x + 5,  this.y + 5, this.h - 10, this.h - 10, 0, 0, this.img.Width, this.img.Height, 0, 225);
+    } else {
+        this.nocover && gr.DrawImage(this.nocover, this.x + 5, this.y + 5, this.h - 10, this.h - 10, 0, 0, this.nocover.Width, this.nocover.Height, 0, 255);
+    }
+    
+    // track info
+    if (this.w > this.h + 100) {
+        var infoX = this.x + this.h + 5;
+        var infoY = this.y + this.h / 2 - gr.CalcTextHeight("ABCD", Font.title) - 5; 
+        gr.GdiDrawText(this.tf_title.Eval(), Font.title, Color.fg, infoX, infoY, this.x + this.w - infoX - 5, 30, DT_LT);
+        infoY += Math.round(Font.title.Height * 1.25);
+        gr.GdiDrawText(this.tf_art.Eval(), Font.small, blendColors(Color.fg, Color.bg, 0.3), infoX, infoY, this.x + this.w - infoX - 5, 30, DT_LT);
+    };
+    
+};
+
+Nowplaying.size = function(x, y, w, h) {
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = Math.min(w, h);
+    this.onSize();
+}
+
+Nowplaying.onSize = function() {
+
+}
+
+
+
+
+
+
+
+function extend(subClass, superClass) {
+    var F = function() {};
+    F.prototype = superClass.prototype;
+    subClass.prototype = new F();
+    subClass.prototype.constructor = subClass;
+
+    subClass.superclass = superClass.prototype;
+    if (superClass.prototype.constructor == Object.prototype.constructor) {
+        superClass.prototype.constructor = superClass;
+    }
+}
+
+
+
+
+
+// helpers: // tool function
+
+
+// Refer: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/isArray
+function isArray (arg) {
+    return Object.prototype.toString.call(arg) === '[object Array]';
+};
+
+// jQuery.isNumeric()
+function isNumeric (obj) {
+    return !isArray(obj) && (obj - parseFloat(obj) + 1) >= 0;
+}
+
+function isFunction (obj) {
+    return Object.prototype.toString.call(obj) == "[object Function]";
+}
+
+// Used in gdi.DrawString
+function StringFormat() {
+    var h_align = 0,
+        v_align = 0,
+        trimming = 0,
+        flags = 0;
+    switch (arguments.length) {
+        case 4:
+            flags = arguments[3];
+        case 3:
+            trimming = arguments[2];
+        case 2:
+            v_align = arguments[1];
+        case 1:
+            h_align = arguments[0];
+            break;
+        default:
+            return 0;
+    };
+    return ((h_align << 28) | (v_align << 24) | (trimming << 20) | flags);
+}
+
+
+// color related
+
+function RGBA(r, g, b, a) {
+    return ((a << 24) | (r << 16) | (g << 8) | (b));
+}
+
+function RGB(r, g, b) {
+    return (0xff000000 | (r << 16) | (g << 8) | (b));
+}
+
+function toRGB(d) {
+    var d = d - 0xff000000;
+    var r = d >> 16;
+    var g = d >> 8 & 0xFF;
+    var b = d & 0xFF;
+    return [r, g, b];
+};
+
+function blendColors(c1, c2, factor) {
+    var c1 = toRGB(c1);
+    var c2 = toRGB(c2);
+    var r = Math.round(c1[0] + factor * (c2[0] - c1[0]));
+    var g = Math.round(c1[1] + factor * (c2[1] - c1[1]));
+    var b = Math.round(c1[2] + factor * (c2[2] - c1[2]));
+    return (0xff000000 | (r << 16) | (g << 8) | (b));
+};
+
+
+function getAlpha(color) {
+    return ((color >> 24) & 0xff);
+}
+
+function getRed(color) {
+    return ((color >> 16) & 0xff);
+}
+
+function getGreen(color) {
+    return ((color >> 8) & 0xff);
+}
+
+function getBlue(color) {
+    return (color & 0xff);
+}
+
+function setAlpha(color, a) {
+    return ((color & 0x00ffffff) | (a << 24));
+}
+
+
+function pos2vol(pos) {
+	return (50 * Math.log(0.99 * pos + 0.01) / Math.LN10);
+};
+
+function vol2pos(v) {
+	return ((Math.pow(10, v / 50) - 0.01) / 0.99);
+};
+
+
+function getSeek() {
+
+    var onGet = function() {
+        try {
+            return fb.PlaybackTime / fb.PlaybackLength;
+        } catch (e) {
+            return 0;
+        }
+    }
+
+    var onSet = debounce(function(pos) {
+        try {
+            fb.PlaybackTime = fb.PlaybackLength * pos;
+        } catch (e) {};
+    });
+
+    Seek = new Slider(Images.nob, 2, onGet, onSet);
+
+}
+
+
+
+
+
+
+// on load
+
+var DT_LT = 0x00000400 | 0x00008000 | 0x00000800; // CALCRECT | END_ELLIPSIS | NO_PREFIX;
+
+
+var ww = 0, 
+    wh = 0;
+var Seek, Volume;
+
+// Load resouces
+getFonts();
+getColor();
+getImages();
+
+// Init obj
+getButtons();
+getSeek();
+
+
+if (fb.IsPlaying) {
+    on_playback_new_track(fb.GetNowPlaying());
+    on_playback_time(fb.PlaybackTime);
+}
+
+on_metadb_changed();
+on_playback_order_changed(fb.PlaybackOrder)
+window.MaxHeight = window.MinHeight = 75;
+
+
+
+// callback functions
+
+function on_size() {
+    ww = window.Width;
+    wh = window.Height;
+    if (!ww || !wh) return;
+
+
+    adjustButtonsLayout();
+    Nowplaying.size(0, 0, Math.min(240, Buttons.prev.x - 10), wh);
+
+    if (Buttons.prev.x - Nowplaying.x - Nowplaying.w > 200) {
+        Seek.visible = true;
+        Seek.size(Nowplaying.x + Nowplaying.w + 60, (wh - 20) / 2 - 10, Buttons.prev.x - Nowplaying.x - Nowplaying.w - 120, 20);
+    } else {
+        Seek.visible = false;
+    }
+
+}
+
+function on_paint(gr) {
+
+    gr.FillSolidRect(0, 0, ww, wh, Color.bg);
+
+    Buttons.order.setImg(getOrderImg());
+    Buttons.playOrPause.setImg(getPlayImg());
+    for (var i in Buttons) {
+        Buttons[i].draw(gr);
+    }
+
+    Nowplaying.draw(gr);
+
+    if (Seek.visible && fb.IsPlaying) {
+        Seek.draw(gr);
+        var time_w = gr.CalcTextWidth(Seek.playbackTime, Font.time);
+        var len_w = gr.CalcTextWidth(Seek.playbackLength, Font.time);
+        gr.GdiDrawText(Seek.playbackTime, Font.time, Color.fg, Seek.x, (wh -20) / 2 + 10, time_w, 20, 0);
+        gr.GdiDrawText(Seek.playbackLength, Font.time, Color.fg, Seek.x + Seek.w - len_w, (wh - 20) / 2 + 10, len_w, 20, 0);
+    }
+
+
+}
+
+function on_mouse_move(x, y) {
+
+    for (var i in Buttons) {
+        Buttons[i].move(x, y);
+    }
+
+    Nowplaying.move(x, y);
+
+    Seek.visible && Seek.move(x, y);
+
+}
+
+function on_mouse_lbtn_down(x, y, mask) {
+
+    for (var i in Buttons) {
+        Buttons[i].down(x, y);
+    }
+
+    Nowplaying.down(x, y);
+
+    Seek.visible && Seek.down(x, y);
+    
+}
+
+function on_mouse_lbtn_up(x, y, mask) {
+
+    for (var i in Buttons) {
+        Buttons[i].up(x, y);
+    }
+
+    Nowplaying.up(x, y);
+
+    Seek.visible && Seek.up(x, y);
+
+}
+
+function on_mouse_leave() {
+    for (var i in Buttons) {
+        Buttons[i].leave();
+    }
+
+    Nowplaying.leave();
+}
+
+function on_volume_change(val) {
+}
+
+
+function on_metadb_changed(handlelist, fromhook) {
+    var metadb = fb.GetNowPlaying();
+
+    Nowplaying.getAlbumArt(metadb);
+
+
+}
+
+
+function on_playback_new_track(metadb) {
+    Seek.playbackTime = "0:00";
+    Seek.playbackLength = tf_length.Eval();
+    on_metadb_changed();
+    window.Repaint();
+}
+
+function on_playback_seek(time) {
+    on_playback_time(time);
+}
+
+function on_playback_time(time) {
+    Seek.playbackTime = utils.FormatDuration(time);
+    Seek.refresh();
+    window.Repaint();
+}
+
+function on_playback_pause(state) {
+    window.Repaint();
+}
+
+function on_playback_stop(reason) {
+    if (reason != 2) {
+    }
+    Seek.playbackTime = "";
+    Seek.playbackLength = "";
+    Nowplaying.albumOld = "#@!";
+    on_metadb_changed();
+    Seek.refresh();
+}
+
+function on_playback_order_changed(new_order) {
+    window.Repaint();
+}
+        
+
+
