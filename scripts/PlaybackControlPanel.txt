@@ -16,7 +16,6 @@ var font_name = "Segoe UI Semibold",
 var color_bg, color_txt, color_txt2;
 var color_bg_ = 0, 
     color_txt_ = 0;
-get_colors();
 
 
 var tf_title = fb.TitleFormat("%title%"),
@@ -43,22 +42,159 @@ var drag_window = false,
     fb_wnd = GetFBWnd();
 
 var images = {}, 
-    buttons = {}, buttons_ = {}, sk, vol,
-    volpanel = { 
-        visible: false, 
-        x: 0, 
-        y: 0, 
-        w: 180, 
-        h: 30,
-        isMouseOver: function(x, y) {
-            var isOver = (x > this.x && x < this.x+this.w && y > this.y && y < this.y+this.h);
-            return isOver && this.visible;
-        },
+    buttons = {}, buttons_ = {}, sk, vol;
+var volpanel = { 
+    x: 0, y: 0, w: 180, h: 30,
+    visible: false, 
+    isMouseOver: function(x, y) {
+        var isOver = (x > this.x && x < this.x+this.w && y > this.y && y < this.y+this.h);
+        return isOver && this.visible;
     },
-    cover = { visible: false, x: 0, y: 0, w: 0, h: 0 };
+};
+cover = { 
+    x: 0, y: 0, w: 0, h: 0,
+    visible: false, 
+    cache: null,
+};
 
 var DT_CC = DT_CENTER | DT_VCENTER | DT_CALCRECT | DT_END_ELLIPSIS | DT_NOPREFIX;
 var DT_LC = DT_VCENTER | DT_CALCRECT | DT_END_ELLIPSIS | DT_NOPREFIX;
+
+//define
+IMG_ADAPT = 0;      //适应
+IMG_CROP = 1;       //修剪
+IMG_STRETCH = 2;    //拉伸
+IMG_FILL = 3;       //填充
+
+IMG_NONE = 0;       //默认
+IMG_SHADOW = 1;     //阴影
+IMG_INVERT = 2;     //倒影
+
+
+function image_apply_shadow(image, w, h, interpolationmode, padding) {
+    if (!image) {
+        return null;
+    }
+    var img = image.Resize(w, h, interpolationmode);
+    var g = null;
+
+    var shadow = gdi.CreateImage(w + 2 * padding, h * padding);
+    g = shadow.GetGraphics();
+    g.SetSmoothingMode(2);
+    g.DrawRoundRect(padding, padding, w, h, 2, 2, 2, RGB(0, 0, 0));
+    shadow.ReleaseGraphics(g);
+    shadow.BoxBlur(1, 2);
+
+    var ret = gdi.CreateImage(w + 2 * padding, h + 2 * padding);
+    g = ret.GetGraphics();
+    g.DrawImage(shadow, 0, 0, shadow.Width, shadow.Height, 0, 0, shadow.Width, shadow.Height, 0, 128);
+    g.DrawImage(img, padding, padding, img.Width, img.Height, 0, 0, img.Width, img.Height, 0, 255);
+    g.DrawRect(padding, padding, w, h, 1, RGBA(0, 0, 0, 64));
+    ret.ReleaseGraphics(g);
+
+    img.Dispose();
+    shadow.Dispose();
+    return ret;
+}
+
+// option: null
+function process_image(image, w, h, aspect, interpolationmode, option, padding) {
+    if (!image) {
+        return null;
+    }
+    if (!isNumeric(interpolationmode)) {
+        interpolationmode = 0;
+    }
+    if (!isNumeric(option)) {
+        option = 0;
+    } else if (!isNumeric(padding)) {
+        if (option == IMG_SHADOW) padding = 6;
+        else padding = 0;
+    }
+    if (option == IMG_SHADOW) {
+        w -= 2 * padding;
+        h -= 2 * padding;
+    } else if (option == IMG_INVERT) {
+        h -= padding;
+    }
+    if (w <= 0 || h <= 0) {
+        return null;
+    }
+
+    var _w = 0, _h = 0;
+    switch (aspect) {
+        default:
+
+        case IMG_ADAPT:
+            var scale = 0;
+            if (Math.max(image.Width, image.Height) < Math.min(w, h)) {
+                scale = 1;
+            }
+            else {
+                scale = Math.min(w / image.Width, h / image.Height);
+            }
+            _w = Math.floor(scale * image.Width);
+            _h = Math.floor(scale * image.Height);
+            break;
+
+        case IMG_CROP:
+            var scale = Math.max(w / image.Width, h / image.Height);
+
+            _w = Math.ceil(scale * image.Width);
+            _h = Math.ceil(scale * image.Height);
+
+            if (_w > w) {
+                var img = image.Resize(_w, _h, interpolationmode);
+                var _x = Math.floor((_w - w) / 2);
+                _w = w;
+                image = cut_image(img, _x, 0, _w, _h);
+            }
+            if (_h > h) {
+                var img = image.Resize(_w, _h, interpolationmode);
+                var _y = Math.floor((_h - h) / 2);
+                _h = h;
+                image = cut_image(img, 0, _y, _w, _h);
+            }
+
+            break;
+
+        case IMG_STRETCH:
+            _w = w;
+            _h = h;
+            break;
+
+        case IMG_FILL:
+            var scale = Math.max(w / image.Width, h / image.Height);
+
+            _w = Math.ceil(scale * image.Width);
+            _h = Math.ceil(scale * image.Height);
+            break;
+    }
+    if (option == IMG_SHADOW) {
+        //return this.ApplyShadow(image, _w, _h, interpolationmode, padding);
+    }
+    else if (option == IMG_INVERT) {
+        //return this.ApplyInvert(image, _w, _h, interpolationmode, padding);
+    }
+    return image.Resize(_w, _h, interpolationmode);
+
+}
+
+function cut_image(image, x, y, w, h) {
+    if (!image) {
+        return null;
+    }
+    
+    var ret = gdi.CreateImage(w, h);
+    var g = ret.GetGraphics();
+    g.DrawImage(image, -x, -y, w, h, 0, 0, w, h, 0, 255);
+    ret.ReleaseGraphics(g);
+
+    return ret;
+}
+
+
+
 
 
 function check_properties() {
@@ -97,7 +233,8 @@ function get_objects() {
     buttons = {
         prev: new Button(function () {fb.Prev() }),
         playOrPause: new Button(function () {
-            double_clicked ? (fb.IsPlaying && fb.Stop()) : fb.PlayOrPause();
+            //double_clicked ? (fb.IsPlaying && fb.Stop()) : fb.PlayOrPause();
+            fb.PlayOrPause();
         }),
         next: new Button(function () { fb.Next() }),
         pbo: new Button(function () {
@@ -161,6 +298,9 @@ function vol2pos(v) {
 };
 
 function get_images() {
+    if (!utils.CheckFont(font_assets)) {
+        alert("NOT INSTALLED: " + font_assets);
+    }
     var g, w, img = null;
     var font_i = gdi.Font(font_assets, 15);
     var sf = StringFormat(1, 1);
@@ -172,6 +312,7 @@ function get_images() {
             g.DrawString(obj[i], font, color, 0, 0, w, h, sf);
             g.DrawString(obj[i], font, color, 0, 0, w, h, sf);
             g.SetTextRenderingHint(0);
+            img.ReleaseGraphics(g);
             images[i] && images[i].Dispose();
             images[i] = img;
         }
@@ -227,6 +368,9 @@ function get_images() {
 
 
 function get_fonts() {
+    if (!utils.CheckFont(font_name)) {
+        font_name = "Tahoma";
+    }
     font_time = gdi.Font(font_name, 14);
     font_cover = gdi.Font(font_assets, 32);
     font_alb = gdi.Font(font_name, 12);
@@ -235,17 +379,27 @@ function get_fonts() {
 
 function get_colors() {
     color_bg = eval(window.GetProperty("Color bg", "RGB(25, 25, 25)"));
-    color_txt = eval(window.GetProperty("Color txt", "RGB(235, 235, 235)"));
+    color_txt = eval(window.GetProperty("Color txt", "RGB(245, 245, 245)"));
     color_txt2 = blendColors(color_txt, color_bg, 0.3);
 }
 
 
-function check_mode() {
+function get_layout() {
+    if (ww < 510) {
+        return 0;
+    } else if (ww < 930) {
+        return 1;
+    } else {
+        return 2;
+    }
+}
+
+function check_layout() {
     switch (true) {
-        case (ww < 510):
+        case (ww < 510 && wh > 85):
             layout_mode = 0;
             break;
-        case (ww < 930):
+        case (ww < 930 && wh > 85):
             layout_mode = 1;
             break;
         default:
@@ -260,10 +414,12 @@ var layout_mode_;
 function on_size() {
     ww = Math.max(320, window.Width);
     wh = window.Height;
-    if (auto_mode) 
-        check_mode();
+    if (auto_mode) {
+        layout_mode = get_layout();
+    }
     if (layout_mode_ != layout_mode) {
         window.MaxHeight = window.MinHeight = get_panel_height();
+        check_layout();
         window.NotifyOthers("layout_mode", layout_mode);
         layout_mode_ = layout_mode;
     }
@@ -275,35 +431,35 @@ function on_size() {
     }, 500);
 }
 
+
 function refreshWallpaper() {
-    if (cover.img_large) {
-        //var img = cover.img_large;
-        //cover.img_large = cover.img_large.Clone(0, img.Height/3*2, img.Width, img.Height/3-2);
-        Wpp.image = GetWallpaper(cover.img_large);
+    Wpp.image_old = Wpp.image;
+    if (cover.cache) {
+        Wpp.image = GetWallpaper(cover.cache);
     } else {
         Wpp.image = null;
     }
+    Wpp.alpha = 0;
+    Wpp.timer && window.ClearInterval(Wpp.timer);
+    Wpp.timer = window.SetInterval(function() {
+        Wpp.alpha += 30;
+        Wpp.alpha = Math.min(255, Wpp.alpha);
+        window.Repaint();
+        if (Wpp.alpha == 255) {
+            window.ClearInterval(Wpp.timer);
+        }
+    }, 60);
     window.Repaint();
 }
 
 function get_pbo_image(order) {
-    var img;
-    switch (order) {
-        case 0:
-            img = images.normal;
-            break;
-        case 1:
-            img = images.repeat;
-            break;
-        case 2:
-            img = images.repeat1;
-            break;
-        case 3:
-        default:
-            img = images.shuffle;
-            break;
-    }
-    return img;
+    var imgs = [
+        images.normal,
+        images.repeat,
+        images.repeat1,
+        images.shuffle
+    ];
+    return (order > 2 ? imgs[3] : imgs[order]);
 }
 
 
@@ -311,8 +467,16 @@ function on_paint(gr) {
 
     // bg
     if (fb.IsPlaying && Wpp.image && (background_mode == 2)) {
-        gr.GdiDrawBitmap(Wpp.image, 0, 0, ww, wh, 0, 0, Wpp.image.Width, Wpp.image.Height);
-        gr.FillSolidRect(0, 0, ww, wh, setAlpha(color_bg, wpp_blurred_alpha));
+        //gr.GdiDrawBitmap(Wpp.image, 0, 0, ww, wh, 0, 0, Wpp.image.Width, Wpp.image.Height);
+        if (Wpp.image_old && Wpp.alpha < 255) {
+            gr.DrawImage(Wpp.image_old, 0, 0, ww, wh, 0, 0, Wpp.image_old.Width, Wpp.image_old.Height, 0, 255 - Wpp.alpha)
+        } else {
+            gr.FillSolidRect(0, 0, ww, wh, color_bg_);
+        }
+        if (Wpp.image && Wpp.alpha > 0) {
+            gr.DrawImage(Wpp.image, 0, 0, ww, wh, 0, 0, Wpp.image.Width, Wpp.image.Height, 0, Wpp.alpha);
+        }
+        gr.FillSolidRect(0, 0, ww, wh, setAlpha(0xff000000, wpp_blurred_alpha));
     } else {
         gr.FillSolidRect(0, 0, ww, wh, color_bg);
         if (background_mode == 1)
@@ -349,15 +513,15 @@ function on_paint(gr) {
     // Cover & Info
     cover.visible = (layout_mode > 0);
     if (cover.visible && fb.IsPlaying) {
-        cover.x = 10;
+        cover.x = 5;
         var alb_w, alb_x, alb_y;
         if (layout_mode < 2) {
-            cover.y = 35;
-            cover.w = cover.h = wh - cover.y - 10;
+            cover.y = 30;
+            cover.w = cover.h = wh - cover.y - 5;
             alb_w = buttons["prev"].x - cover.x - cover.w - 30;
         } else {
-            cover.y = 10;
-            cover.w = cover.h = wh - 20;
+            cover.y = 5;
+            cover.w = cover.h = wh - 10;
         }
         alb_w = Math.min(180, buttons["prev"].x - cover.x - cover.w - 30);
 
@@ -365,6 +529,7 @@ function on_paint(gr) {
             gr.DrawImage(cover.img, cover.x, cover.y, cover.w, cover.h, 0, 0, cover.img.Width, cover.img.Height, 0, 255);
         } else {
             gr.SetTextRenderingHint(3);
+            gr.FillSolidRect(cover.x, cover.y, cover.w, cover.w, 0x20000000);
             gr.DrawString("\uE958", font_cover, color_txt2, cover.x, cover.y, cover.w, cover.h, StringFormat(1, 1));
             gr.SetTextRenderingHint(0);
         }
@@ -438,10 +603,13 @@ function on_metadb_changed (handlelist, fromhook) {
 
         var alb = tf_art_alb.EvalWithMetadb(metadb);
         if (alb != alb_old) {
+            cover.cache = null;
+            cover.img = null;
             utils.GetAlbumArtAsync(window.ID, metadb, AlbumArtId.front);
             alb_old = alb;
         }
     } else {
+        cover.cache = null;
         cover.img = null;
         art_str = "";
         title_str = "";
@@ -484,25 +652,27 @@ function on_playback_stop(reason) {
 var color_timer = null;
 var Wpp = {};
 
-function getWallpaper(img) {
-    if (!img) { return img; }
-    var img = FormatWallpaper(img, ww, wh, 2, 0, 0, "", true);
-    return img;
-}
 
 function GetWallpaper(img) {
     if (!img) {
         return null;
     }
-    img = img.Resize(ww, img.Height / img.Width * ww, 7);
+    //img = img.Resize(ww, img.Height / img.Width * ww, 7);
+    img = process_image(img, fb_wnd.Width, fb_wnd.Height, IMG_FILL);
+
+    if (img.Height < wh) {
+        return null;
+    }
     if (wpp_blur_val < 0 || wpp_blur_val > 255) {
         wpp_blur_val = 0;
     }
     if (wpp_blur_val > 0)
         img.StackBlur(wpp_blur_val, 2);
 
+    var cut_x = Math.round((img.Width - ww) / 2);
+
     try {
-        return img.Clone(0, img.Height - wh-5, ww, wh).CreateRawBitmap();
+        return img.Clone(cut_x, img.Height - wh-5, ww, wh);
     } catch (e) {
         return null;
     }
@@ -512,18 +682,18 @@ function GetWallpaper(img) {
 
 
 function on_get_album_art_done(metadb, art_id, image, image_path) {
-    cover.img = image;
-    cover.img_large = image;
+    cover.cache = image;
     // GET COVER
-    if (cover.img) {
-        cover.img_large = image;
-        cover.img = cover.img.Resize(40, 40);
+    if (cover.cache) {
+        //cover.img_large = cover.cache;
+        //cover.img = cover.cache.Resize(40, 40);
+        cover.img = process_image(cover.cache, 100, 100, IMG_FILL);
     }
     //  GET BACKGROUND
     if (background_mode > 0) {
         color_bg_ = color_bg;
-        if (cover.img && background_mode == 1) {
-            var objcolor = get_color_scheme_from_image(cover.img);
+        if (cover.cache && background_mode == 1) {
+            var objcolor = get_color_scheme_from_image(cover.cache);
             color_txt = objcolor.text;
             color_txt2 = objcolor.text2;
             color_bg = objcolor.background;
@@ -543,7 +713,7 @@ function on_get_album_art_done(metadb, art_id, image, image_path) {
             alpha1 -= 30;
             alpha1 = alpha1 < 0 ? 0 : alpha1;
             color_bg_ = setAlpha(color_bg_, alpha1);
-            color_bg = setAlpha(color_bg, 255 - alpha1);
+            //color_bg = setAlpha(color_bg, 255 - alpha1);
             refresh_colors();
             window.Repaint();
             if (alpha1 == 0) {
@@ -552,7 +722,11 @@ function on_get_album_art_done(metadb, art_id, image, image_path) {
         }, 60);
     }
     
-    refreshWallpaper();
+    if (background_mode == 2) {
+        //window.setTimeout(function() {
+            refreshWallpaper();
+        //}, 5);
+    }
 }
 
 function on_playback_order_changed(new_order) {
@@ -745,6 +919,7 @@ on_load();
 
 function on_load() {
     check_properties();
+    get_colors();
     get_fonts();
     get_images();
     get_objects();
@@ -950,141 +1125,42 @@ function inverseColors(color, palette) {
 	return [primaryColor, secondaryColor];
 };
 
+/*
 
-// FROM BR3TT's JSSMOOTHPLAYLIST
-    
-var wpp_img_info = {orient: 0, cut: 0, cut_offset: 0, ratio: 0, x: 0, y: 0, w: 0, h: 0};
-//var wpp_mode = 0;
-//var wpp_image = null;
+function debounce(fn, threshhold, scope) {
+    threshhold || (threshhold = 250);
+    var last,
+        deferTimer;
+    return function () {
+        var context = scope || this;
 
-function draw_blurred_image(image,ix,iy,iw,ih,bx,by,bw,bh,blur_value,overlay_color) {
-    var blurValue = blur_value;
-    var imgA = image.Resize(iw*blurValue/100,ih*blurValue/100,2);
-    var imgB = imgA.resize(iw, ih, 2);
-    
-    var bbox = gdi.CreateImage(bw, bh);
-    // Get graphics interface like "gr" in on_paint
-    var gb = bbox.GetGraphics();
-    var offset = 90-blurValue;
-    gb.DrawImage(imgB, 0-offset, 0-(ih-bh)-offset, iw+offset*2, ih+offset*2, 0, 0, imgB.Width, imgB.Height, 0, 255);
-    bbox.ReleaseGraphics(gb);
-
-    var newImg = gdi.CreateImage(iw, ih);
-    var gb = newImg.GetGraphics();
-
-    if(ix!=bx || iy!=by || iw!=bw || ih!=bh) {
-        gb.DrawImage(image, ix, iy, iw, ih, 0, 0, image.Width, image.Height, 0, 255);
-        gb.FillSolidRect(bx,by,bw,bh,0xffffffff);
+        var now = +new Date,
+            args = arguments;
+        if (last && now < last + threshhold) {
+            // hold on to it
+            window.clearTimeout(deferTimer);
+            deferTimer = window.setTimeout(function () {
+                last = now;
+                fn.apply(context, args);
+            }, threshhold);
+        } else {
+            last = now;
+            fn.apply(context, args);
+        }
     };
-    gb.DrawImage(bbox, bx, by, bw, bh, 0, 0, bbox.Width, bbox.Height, 0, 255);
-    
-    // overlay
-    if(overlay_color!=null) {
-        gb.FillSolidRect(bx,by,bw,bh,overlay_color);
-    };
-    
-    // top border of blur area
-    if(ix!=bx || iy!=by || iw!=bw || ih!=bh) {
-        gb.FillSolidRect(bx,by,bw,1,0x22ffffff);
-        gb.FillSolidRect(bx,by-1,bw,1,0x22000000);
-    };
-    newImg.ReleaseGraphics(gb);
-    
-    return newImg;
-};
+}
 
+function throttle(fn, delay) {
+    var timer = null;
+    return function() {
+        var context = this,
+            args = arguments;
+        window.ClearTimeout(timer);
+        timer = window.setTimeout(function () {
+            fn.apply(context, args);
+        }, delay);
+    }
+}
 
-
-function FormatWallpaper(image, iw, ih, interpolation_mode, display_mode, angle, txt, rawBitmap) {
-	if(!image||!iw||!ih) return image;
-    //image = image.Clone(0, image.Height / 2, image.Width, image.Height / 2-1);
-    var i, j;
-
-    var panel_ratio = iw / ih;
-    wpp_img_info.ratio = image.Width / image.Height;
-    wpp_img_info.orient = 0;
-
-    if(wpp_img_info.ratio > panel_ratio) {
-        wpp_img_info.orient = 1;
-        // 1/3 : default image is in landscape mode    
-        switch(display_mode) {
-            case 0:     // Filling
-                //wpp_img_info.w = iw * wpp_img_info.ratio / panel_ratio;
-                wpp_img_info.w = ih * wpp_img_info.ratio;
-                wpp_img_info.h = ih;
-                wpp_img_info.cut = wpp_img_info.w - iw;
-                wpp_img_info.x = 0 - (wpp_img_info.cut / 2);
-                wpp_img_info.y = 0;
-                break;
-            case 1:     // Adjust
-                wpp_img_info.w = iw;
-                wpp_img_info.h = ih / wpp_img_info.ratio * panel_ratio;
-                wpp_img_info.cut = ih - wpp_img_info.h;
-                wpp_img_info.x = 0;
-                wpp_img_info.y = wpp_img_info.cut / 2;
-                break;
-            case 2:     // Stretch
-                wpp_img_info.w = iw;
-                wpp_img_info.h = ih;
-                wpp_img_info.cut = 0;
-                wpp_img_info.x = 0;
-                wpp_img_info.y = 0;
-                break;
-        };
-    }; else if(wpp_img_info.ratio < panel_ratio) {
-        wpp_img_info.orient = 2;
-        // 2/3 : default image is in portrait mode
-        switch(display_mode) {
-            case 0:     // Filling
-                wpp_img_info.w = iw;
-                //wpp_img_info.h = ih / wpp_img_info.ratio * panel_ratio;
-                wpp_img_info.h = iw / wpp_img_info.ratio;
-                wpp_img_info.cut = wpp_img_info.h - ih;
-                wpp_img_info.x = 0;
-                wpp_img_info.y = 0 - (wpp_img_info.cut / 4);
-                break;
-            case 1:     // Adjust
-                wpp_img_info.h = ih;
-                wpp_img_info.w = iw * wpp_img_info.ratio / panel_ratio;
-                wpp_img_info.cut = iw - wpp_img_info.w;
-                wpp_img_info.y = 0;
-                wpp_img_info.x = wpp_img_info.cut / 2;
-                break;
-            case 2:     // Stretch
-                wpp_img_info.w = iw;
-                wpp_img_info.h = ih;
-                wpp_img_info.cut = 0;
-                wpp_img_info.x = 0;
-                wpp_img_info.y = 0;
-                break;
-        };
-    }; else {
-        // 3/3 : default image is a square picture, ratio = 1
-        wpp_img_info.w = iw;
-        wpp_img_info.h = ih;
-        wpp_img_info.cut = 0;
-        wpp_img_info.x = 0;
-        wpp_img_info.y = 0;
-    };
-
-    var tmp_img = gdi.CreateImage(iw, ih);
-    var gp = tmp_img.GetGraphics();
-	gp.SetInterpolationMode(interpolation_mode);
-    gp.DrawImage(image, wpp_img_info.x, wpp_img_info.y, wpp_img_info.w, wpp_img_info.h, 0, 0, image.Width, image.Height, angle, 255);
-	tmp_img.ReleaseGraphics(gp);
-    
-    // blur it!
-    if(wpp_blurred) {
-        tmp_img = draw_blurred_image(tmp_img,0,0,tmp_img.Width,tmp_img.Height,0,0,tmp_img.Width,tmp_img.Height,wpp_blur_val,0x00ffffff);
-    };
-    
-	CollectGarbage();
-    if(rawBitmap) {
-        return tmp_img.CreateRawBitmap();
-    }; else {
-        return tmp_img;
-    };
-};
-
-
+*/
 
