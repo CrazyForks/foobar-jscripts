@@ -9,6 +9,10 @@
 // Required:
 // * foobar2000 v1.3.3+
 // * WSH Panel Mod Plus v1.5.7+
+//
+// Import: (only 1 file)
+// e.g. => 
+// @import "E:\GitHub\Foobar2000-JScripts\scripts\pbc.txt"
 
 var SCRIPT_NAME = "Playback Control Panel";
 var dbg_mode = true;
@@ -21,6 +25,7 @@ function dbg_trace(str) {
 
 var shuffleType = window.GetProperty("shuffleType", 4);
 
+var tf_length = fb.TitleFormat("[%length%]");
 
 
 // Animator Class: ==============================================
@@ -230,6 +235,7 @@ function getImages() {
         var gb = img.GetGraphics();
         gb.SetTextRenderingHint(3);
         gb.DrawString(code, font, color, 0, 0, w, h, sf);
+        gb.DrawString(code, font, color, 0, 0, w, h, sf);
         gb.SetTextRenderingHint(0);
         img.ReleaseGraphics(gb);
         return img;
@@ -246,11 +252,9 @@ function getImages() {
         "repeat1": "\ue1cc",
         "normal": "\ue13c",
     };
-    var colors = [Color.fg, setAlpha(Color.fg, 200), setAlpha(Color.fg, 128)];
     var w = 40;
     var font_assets = gdi.Font(Font.assets.Name, 15);
 
-    var img = getImg(icons.prev, font_assets, Color.fg, 40, 40);
 
     for (var i in icons) {
         Images[i] = getImg(icons[i], font_assets, Color.fg, w, w);
@@ -267,7 +271,8 @@ function getImages() {
     Images.nocover.ReleaseGraphics(g);
 
     // Slider nob images
-    Images.nob = gdi.CreateImage(18, 18);
+    w = 18;
+    Images.nob = gdi.CreateImage(w, w);
     g = Images.nob.GetGraphics();
     g.SetSmoothingMode(2);
     g.FillEllipse(1, 1, w - 3, w - 3, Color.fg);
@@ -284,14 +289,14 @@ function getFonts() {
     if (!utils.CheckFont(font_name)) {
         font_name = "tahoma";
     }
-    Font.time = gdi.font(font_name, 14);
+    Font.time = gdi.font(font_name, 12);
     Font.small = gdi.Font(font_name, 12);
 }
 
 function getColor() {
     Color = {};
     Color.bg = RGB(16, 16, 16);
-    Color.fg = RGB(255, 255, 255);
+    Color.fg = RGB(235, 235, 235);
 }
 
 
@@ -377,6 +382,7 @@ Image = {
 function Slider (img, height, getpos, setpos) {
     this.img = img; // nob image
     this.height = height; // visual height
+    this.visible = true;
     this.getpos = getpos || function() {};
     this.setpos = setpos || function() { return -1; };
 
@@ -398,13 +404,21 @@ Slider.prototype = {
         this.repaint();
     },
     draw: function(gr) {
+        if (!this.visible) return;
         if (this.height > this.h) return;
         if (this.w <= 0) return;
-        var yoff = (this.h - this.height) / 2;
+        var yoff = (this.h - this.height) / 2,
+            img_w;
         gr.FillSolidRect(this.x, this.y + yoff, this.w, this.height, setAlpha(0xffffffff, 128));
         if (this.pos > 0 || this.pos <= 1) {
             gr.FillSolidRect(this.x, this.y + yoff, this.w * this.pos, this.height, 0xffffffff);
         }
+        if (this.img && isNumeric(this.pos) && this.pos >= 0) {
+            img_w = this.img.Width;
+            gr.DrawImage(this.img, this.x + this.w * this.pos - img_w / 2, (this.h - this.img.Height) / 2 + this.y, img_w, this.img.Height, 
+                0, 0, this.img.Width, this.img.Height, 0, 255);
+        }
+
     },
     size: function(x, y, w, h) {
         this.x = x;
@@ -414,6 +428,7 @@ Slider.prototype = {
     },
     // Mouse events:
     move: function(x, y) {
+        if (!this.visible) return;
         if (this.drag) {
             x -= this.x;
             this.pos = x < 0 ? 0 : x > this.w ? 1 : x / this.w;
@@ -433,11 +448,12 @@ Slider.prototype = {
 }
 
 function debounce(fn, delay) {
-    var timer = null;
+    var timer = null,
+        delay = delay || 250;
     return function() {
         var context = this,
             args = arguments;
-        window.ClearTimeout(timer);
+        timer && window.ClearTimeout(timer);
         timer = window.SetTimeout(function() {
             fn.apply(context, args);
         }, delay);
@@ -581,6 +597,20 @@ function extend(subClass, superClass) {
 // helpers: // tool function
 
 
+// Refer: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/isArray
+function isArray (arg) {
+    return Object.prototype.toString.call(arg) === '[object Array]';
+};
+
+// jQuery.isNumeric()
+function isNumeric (obj) {
+    return !isArray(obj) && (obj - parseFloat(obj) + 1) >= 0;
+}
+
+function isFunction (obj) {
+    return Object.prototype.toString.call(obj) == "[object Function]";
+}
+
 // Used in gdi.DrawString
 function StringFormat() {
     var h_align = 0,
@@ -672,7 +702,7 @@ function getSeek() {
         }
     }
 
-    var onSet = throttle(function(pos) {
+    var onSet = debounce(function(pos) {
         try {
             fb.PlaybackTime = fb.PlaybackLength * pos;
         } catch (e) {};
@@ -703,7 +733,13 @@ getButtons();
 getSeek();
 
 
+if (fb.IsPlaying) {
+    on_playback_new_track(fb.GetNowPlaying());
+    on_playback_time(fb.PlaybackTime);
+}
+
 on_metadb_changed();
+on_playback_order_changed(fb.PlaybackOrder)
 
 
 
@@ -720,7 +756,7 @@ function on_size() {
 
     if (Buttons.prev.x - Nowplaying.x - Nowplaying.w > 200) {
         Seek.visible = true;
-        Seek.size(Nowplaying.x + Nowplaying.w + 60, (wh - 20) / 2, Buttons.prev.x - Nowplaying.x - Nowplaying.w - 120, 20);
+        Seek.size(Nowplaying.x + Nowplaying.w + 60, (wh - 20) / 2 - 10, Buttons.prev.x - Nowplaying.x - Nowplaying.w - 120, 20);
     } else {
         Seek.visible = false;
     }
@@ -741,6 +777,10 @@ function on_paint(gr) {
 
     if (Seek.visible && fb.IsPlaying) {
         Seek.draw(gr);
+        var time_w = gr.CalcTextWidth(Seek.playbackTime, Font.time);
+        var len_w = gr.CalcTextWidth(Seek.playbackLength, Font.time);
+        gr.GdiDrawText(Seek.playbackTime, Font.time, Color.fg, Seek.x, (wh -20) / 2 + 10, time_w, 20, 0);
+        gr.GdiDrawText(Seek.playbackLength, Font.time, Color.fg, Seek.x + Seek.w - len_w, (wh - 20) / 2 + 10, len_w, 20, 0);
     }
 
 
@@ -804,14 +844,20 @@ function on_metadb_changed(handlelist, fromhook) {
 
 
 function on_playback_new_track(metadb) {
+    Seek.playbackTime = "0:00";
+    Seek.playbackLength = tf_length.Eval();
     on_metadb_changed();
+    window.Repaint();
 }
 
 function on_playback_seek(time) {
+    on_playback_time(time);
 }
 
 function on_playback_time(time) {
+    Seek.playbackTime = utils.FormatDuration(time);
     Seek.refresh();
+    window.Repaint();
 }
 
 function on_playback_pause(state) {
@@ -821,6 +867,9 @@ function on_playback_pause(state) {
 function on_playback_stop(reason) {
     if (reason != 2) {
     }
+    Seek.playbackTime = "";
+    Seek.playbackLength = "";
+    Nowplaying.albumOld = "#@!";
     on_metadb_changed();
     Seek.refresh();
 }
