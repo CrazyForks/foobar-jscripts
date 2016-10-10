@@ -1396,7 +1396,7 @@ var oldLyric  = null;
 esl.SetLyricCallback(function(lyric) {
 
     fb.trace("\nCalled by WSH Panel Mod Plus\n");
-    fb.trace(lyric.LyricText);
+    //fb.trace(lyric.LyricText);
 
 });
 
@@ -1404,5 +1404,5 @@ esl.SetPanelTextNormalColor(RGB(235, 235, 235), guid);
 esl.SetPanelTextBackgroundColor(RGB(120, 28, 64), guid);
 esl.SetPanelBackgroundType(ESL_BG_NO_IMG, guid);
 esl.SetPanelTextHighlightColor(RGB(0, 255, 36), guid);
-*/
 
+*/
