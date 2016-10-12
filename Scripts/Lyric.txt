@@ -1,0 +1,6 @@
+// Lyric script to display lyric on a wsh panel and use ESLyric as search
+// engine.
+
+
+var Lyric;
+var ww, wh;
