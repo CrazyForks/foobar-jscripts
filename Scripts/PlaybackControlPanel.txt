@@ -19,6 +19,7 @@
 // TODO list:
 //
 // * Download albumArt from internet. 
+// * Use dark text color if blurred bg image color is too light.
 
 // Reserved
 var Buttons, Font, Color, Image, Images, NowPlaying, Seek, Volume, Wallpaper,
@@ -32,6 +33,7 @@ var dbg_mode = window.GetProperty("debug mode", false);
 
 var SCRIPT_NAME = "Playback Control Panel";
 // TFs
+// tf objects is recommended to be cached before use.
 var TF_LENGTH = fb.TitleFormat("[%length%]");
 // Image.resize
 var IMG_ADAPT = 0;      //适应
@@ -728,11 +730,6 @@ NowPlaying.getAlbumArt = function(metadb) {
 
 }
 
-var blendbf = function (fg, bg) {
-    return function (factor) {
-        return blendColors(fg, bg, factor);
-    }
-}
 
 NowPlaying.draw = function(gr) {
     if (!fb.IsPlaying) return;
@@ -745,7 +742,6 @@ NowPlaying.draw = function(gr) {
         this.nocover && gr.DrawImage(this.nocover, this.x + 5, this.y + 5, this.h - 10, this.h - 10, 0, 0, this.nocover.Width, this.nocover.Height, 0, 255);
     }
 
-    var blend = blendbf(Color.fg, Color.bg);
     
     // track info
     if (this.w > this.h + 50) {
@@ -753,7 +749,7 @@ NowPlaying.draw = function(gr) {
         var infoY = this.y + this.h / 2 - Font.title.Height - 5; 
         gr.GdiDrawText(this.TF_TITLE.Eval(), Font.title, Color.fg, infoX, infoY, this.x + this.w - infoX - 5, 30, DT_LT);
         infoY += Math.round(Font.title.Height * 1.25);
-        gr.GdiDrawText(this.TF_ART.Eval(), Font.title, blend(0.2), infoX, infoY, this.x + this.w - infoX - 5, 30, DT_LT);
+        gr.GdiDrawText(this.TF_ART.Eval(), Font.title, Color.fg, infoX, infoY, this.x + this.w - infoX - 5, 30, DT_LT);
     };
 
     // hover color
@@ -783,7 +779,7 @@ NowPlaying.onSize = function() {
 
 Volume = {
 
-    w: 240,
+    w: 260,
     h: 60,
     visible: false,
     getVolImg: function() {
@@ -794,7 +790,7 @@ Volume = {
     },
 
     getButton: function() {
-        this.button = new Button(Volume.getVolImg(), this.h - 12, this.h - 12, function () {fb.VolumeMute() });
+        this.button = new Button(Volume.getVolImg(), Images.volume0.Width, Images.volume0.Height, function () {fb.VolumeMute() });
     },
 
     setXY: function(x, y){
@@ -830,7 +826,7 @@ Volume = {
             repaintAll();
             self.timerId && window.ClearTimeout(self.timerId);
             self.timerId = null;
-        }, 5000);
+        }, 3000);
     },
 
     show: function() {
@@ -847,28 +843,12 @@ Volume = {
         this.onSize();
         repaintAll();
         this.hide();
-
-        /*
-        if (visible_old) {
-            this.timerId && window.ClearTimeout(this.timerId);
-            this.timerId = null;
-            repaintAll();
-            this.hide();
-        } else {
-            this.timerId && window.ClearTimeout(this.timerId);
-            this.timerId = null;
-            repaintAll();
-            this.hide();
-        }
-        */
     },
 
     draw: function(gr) {
         if (!this.visible) return;
 
-        this.setXY((ww - this.w) / 2, (wh - this.h) / 2);
         gr.DrawImage(this.img, this.x, this.y, this.w, this.h, 0, 0, this.img.Width, this.img.Height, 0, 255);
-
         this.button.setImg(this.getVolImg());
         this.button.draw(gr);
         // draw slider
@@ -881,10 +861,10 @@ Volume = {
         this.setXY((ww - this.w ) / 2, (wh - this.h) / 2);
         // draw button
         if (!this.button) this.getButton();
-        this.button.setXY(this.x + 6, this.y + 6);
+        this.button.setXY(Math.round(this.x + 6), Math.round(this.y + 6));
         if (!this.slider) this.getSlider();
         this.slider.visible = this.visible;
-        this.slider.size(this.button.x + this.button.w + 10, this.y + (this.h - 20) / 2, this.w - this.button.w - 30, 20);
+        this.slider.size(this.button.x + this.button.w + 10, this.y + (this.h - 20) / 2, this.w - this.button.w - 40, 20);
     },
 
 
