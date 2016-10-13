@@ -798,7 +798,9 @@ Volume = {
         this.y = y;
     },
 
-    isMouseIn: Button.prototype.isMouseIn,
+    isMouseIn: function (x, y) {
+        return (x > this.x && x < this.x + this.w && y > this.y && y < this.y + this.h);
+    },
 
     getImg: function() {
         var img, g;
@@ -1243,7 +1245,7 @@ function on_mouse_move(x, y) {
 
 function on_mouse_lbtn_down(x, y, mask) {
 
-    if (Volume.isMouseIn(x, y)) {
+    if (Volume.visible && Volume.isMouseIn(x, y)) {
         Volume.down(x, y);
         return;
     } 
