@@ -1,4 +1,4 @@
-// vim: set ft=javascript fileencoding=utf-8 bomb et:
+﻿// vim: set ft=javascript fileencoding=utf-8 bomb et:
 
 // Lyric script to display lyric on a wsh panel and use `ESLyric' as search
 // engine.
@@ -6,11 +6,13 @@
 // Required:
 // * foobar2000 v1.3.3+
 // * WSH Panel Mod Plus v1.5.7+
+// * ESLyric v0.3.x+
 
 // TODO: 
 // * parse Lyric
 // * show Lyric
 // * handle mouse event
+// * scrolling improvement
 // * ...
 
 var Lyric, ESLyric;
@@ -25,23 +27,19 @@ try {
 
 ;(function() {
 
+    // Dependences
     var undefined;
-    var rowHeight = 35,
-        click = false,
-        timer = null,
+    var click = false,
         line = 0,
         mid = 0,
         get = false,
         focus = 0,
+        timer = null,
         withTimeStamp = true;
     var translate = window.GetProperty("Translate", false);
     var visible = true;
     var margin = 10;
 
-    var arrLrc = [],
-        arrtLrc = []; // Translated lyric;
-    var txtLrc = "",
-        txttLrc = "";
     var lrc_txt = "",
         tlrc_txt = ""; // Traslated lyric text;
     var lrc = [],
@@ -52,9 +50,9 @@ try {
     var TF_NO_LYRIC = fb.TitleFormat("Title: %title%||[Artist: %artist%||][Album: %album%||]||-No Lyric-");
 
     var lrcX, lrcY, lrcW, lrcH;
-    var lrcFont = gdi.Font("Segoe UI Semibold", 14);
+    var lrcFont = gdi.Font(window.GetProperty("Lyric font", "Segoe UI Semibold"), 14);
     var lrcFontBig = gdi.Font("Segoe UI Semibold", 14);
-    var rowHeight = Math.round(lrcFont.Height * 1.35) + 1;
+    var rowHeight = Math.round(lrcFont.Height * 1.35);
 
     var reTimeStamp = /\[[0-9]*:[0-9]*\.[0-9]*\]/g;
 
@@ -81,7 +79,7 @@ try {
         }
         // 时间戳、文本分离
         for (var i = 0; i < text.length; i++) {
-            stamp = text[i].match(/\[[0-9]*:[0-9]*\.[0-9]*\]/g);
+            stamp = text[i].match(/\[[0-9]*:[0-9]*\.[0-9]*\]/);
             text[i] = text[i].replace(/\[..:.*?\]/g, "");
             text[i] = text[i].length == 0 ? ' ' : text[i];
             // 含时间戳
@@ -267,12 +265,10 @@ try {
 
     }
 
-    fb.trace(getDefaultText(TF_NO_LYRIC, "foobar2000", lrcFont));
-
-
 
     // On time display ============================================================
 
+    // show(playbackTime, lyricArr);
     function show() {
         var playback_time = fb.PlaybackTime * 1000;
         var t = 0;
@@ -291,6 +287,10 @@ try {
         }
     }
 
+    // setProgress(line, lyricArr)
+    // return focus
+    // setPlaybackTime(focus, lyricArr);
+    // return playbackTime
     function setProgress() {
         for (var t = 0; t < lrc.length; t++) {
             if (-line < lrc[t].y) {
@@ -307,6 +307,7 @@ try {
         }
     }
 
+    // Math.round() ?
     function one(num) {
         if (num == 0) {
             return Number(0);
@@ -317,11 +318,17 @@ try {
         }
     }
 
-    function clearTimer(timer) {
-        timer && window.ClearInterval(timer);
-        timer = null;
-        return timer;
+    // timer = clearTimeout(timer);
+    function clearTimeout(timer) {
+        timer && window.ClearTimeout(timer);
+        return null;
     }
+
+    function clearInterval(timer) {
+        timer && window.ClearInterval(timer);
+        return null;
+    }
+
 
     function onTime() {
         if (!fb.IsPlaying || !get || click) {
@@ -376,15 +383,38 @@ try {
 
     }
 
-    function onPaint(gr) {
-        if (!get) {
-            var arrText = getDefaultText(TF_NO_LYRIC, "foobar2000", lrcFont);
-            var totalHeight = rowHeight * arrText.length;
-            var offsetY = (wh - totalHeight) / 2;
-            for (var i = 0; i < arrText.length; i++) {
-                arrText[i] && gr.GdiDrawText(arrText[i], lrcFont, 0xffffffff, margin, offsetY, ww - margin, rowHeight, DT_CC);
-                offsetY += rowHeight;
+
+    function getDrawMethod(method, align) {
+        return function (gr, text, font, color, x, y, w, h) {
+            switch (method) {
+                default:
+                case 0: // GDI
+                    gr.GdiDrawText(text, font, color, x, y, w, h, DT_CC);
+                    break;
+                case 1:
+                    gr.DrawString(text, font, color, x, y, w, h, StringFormat(1, 1));
+                    break;
             }
+        }
+    }
+
+    var drawStyle = 1; // 0: gdi, 1: gdi+
+    var drawFunc = getDrawMethod(drawStyle);
+
+    function drawNoLyric(gr) {
+        var arrText = getDefaultText(TF_NO_LYRIC, "foobar2000", lrcFont);
+        var totalHeight = rowHeight * arrText.length;
+        var offsetY = (wh - totalHeight) / 2;
+        for (var i = 0; i < arrText.length; i++) {
+            arrText[i] && drawFunc(gr, arrText[i], lrcFont, 0xffe8e8e8, margin, offsetY, ww - margin, rowHeight);
+            offsetY += rowHeight;
+        }
+    }
+
+    function drawLyric(gr) {
+        drawStyle && gr.SetTextRenderingHint(4);
+        if (!get) {
+            drawNoLyric(gr);
             return;
         } 
         // Draw lyrics
@@ -396,27 +426,20 @@ try {
                         return;
                     }
                     if (y >= 0) {
-                        var font = (i == focus ? lrcFontBig : lrcFont);
-                        var color = (i == focus ? 0xff000000 : 0xffffffff);
-                        gr.GdiDrawText(lrc[i].lrc[j], font, color, lrcX, lrcY + y, lrcW, rowHeight, DT_CC);
+                        var font = (i == focus ? lrcFont : lrcFont);
+                        var color = (i == focus ? 0xffd74164 : 0xff8e8e8e);
+                        drawFunc(gr, lrc[i].lrc[j], font, color, lrcX, lrcY + y, lrcW, rowHeight);
                     }
                 }
             }
         }
+        gr.SetTextRenderingHint(0);
     }
 
     function onLyricGet(lyric) {
-        //init(true);
-        //var lrcArr = handle(lrc_txt);
-        //get = getLyric();
-        //init(true);
         lrc_txt = lyric.lyricText;
         init(false);
         fb.trace("get: " + get);
-        //fb.trace("lyric arr length: " + lrcArr.length);
-        //for (var i = 0; i < lrcArr.length; i++) {
-            //fb.trace(lrcArr[i].tag + " => " + lrc[i].y + " : " +  lrc[i].str);
-        //}
         repaintAll();
     }
 
@@ -424,7 +447,7 @@ try {
 
     Lyric = {};
     Lyric.init = init;
-    Lyric.draw = onPaint;
+    Lyric.draw = drawLyric;
     Lyric.size = setSize;
     Lyric.onPlaybackTime = onTime;
 
@@ -433,6 +456,27 @@ try {
 
 function repaintAll() {
     window.Repaint();
+}
+
+
+function StringFormat() {
+	var h_align = 0, v_align = 0, trimming = 0, flags = 0;
+	switch (arguments.length)
+	{
+	// fall-thru
+	case 4:
+		flags = arguments[3];
+	case 3:
+		trimming = arguments[2];
+	case 2:
+		v_align = arguments[1];
+	case 1:
+		h_align = arguments[0];
+		break;
+	default:
+		return 0;
+	}
+	return ((h_align << 28) | (v_align << 24) | (trimming << 20) | flags);
 }
 
 
@@ -472,7 +516,7 @@ function on_size() {
 
 function on_paint(gr) {
 
-    gr.FillSolidRect(0, 0, ww, wh, 0xff555555);
+    gr.FillSolidRect(0, 0, ww, wh, 0xff1e1e1e);
 
     Lyric.draw(gr);
 
