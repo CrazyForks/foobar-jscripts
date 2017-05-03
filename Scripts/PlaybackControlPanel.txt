@@ -5,1402 +5,1313 @@
 // * WSH Panel Mod Plus v1.5.7+
 //
 // Installation: 
-// * Import/paste the hole file content to wshmp's editor or
+// * Import/paste the whole file content to wshmp's editor or
 // * Use `PREPROCESSOR' to @import file like below.
 //
 // ==PREPROCESSOR==
-// @author "Elia"
-// @version "2016-10-10 04:53"
-// @import "e:\github\foobar2000-jscripts\scripts\pbc.txt"
-// @site "(TODO: github repo)"
+// @author "lenka"
+// @import "path\to\script.js"
 // ==/PREPROCESSOR==
-
 
 // TODO list:
 //
 // * Download albumArt from internet. 
+// * Use dark text color if blurred bg image color is too bright.
 
 // Reserved
-var Buttons, Font, Color, Image, Images, NowPlaying, Seek, Volume, Wallpaper,
-    AlbumArt;
-var ww = 0,
-    wh = 0;
-//var root = Function('return this')();
 
-var shuffleType = window.GetProperty("shuffleType", 4);
-var dbg_mode = window.GetProperty("debug mode", false);
+var shuffleType = window.GetProperty('shuffleType', 4);
+var debug = window.GetProperty('debug mode', false);
 
-var SCRIPT_NAME = "Playback Control Panel";
+var SCRIPT_NAME = 'Playback Control Panel';
 // TFs
-var TF_LENGTH = fb.TitleFormat("[%length%]");
+// tf objects is recommended to be cached before use.
+var tf_length = fb.TitleFormat('[%length%]');
 // Image.resize
-var IMG_ADAPT = 0;      //适应
-var IMG_CROP = 1;       //修剪
-var IMG_STRETCH = 2;    //拉伸
-var IMG_FILL = 3;       //填充
+var IMG_ADAPT = 0; // 适应
+var IMG_CROP = 1; // 修剪
+var IMG_STRETCH = 2; // 拉伸
+var IMG_FILL = 3; // 填充
 // gr.gdiDrawText
-// => CALCRECT | END_ELLIPSIS | NO_PREFIX;
-var DT_LT = 0x00000400 | 0x00008000 | 0x00000800; 
+// => CALCRECT | END_ELLIPSIS | NO_PREFIX
+var DT_LT = 0x00000400 | 0x00008000 | 0x00000800;
 
 // mask key
 var MK_SHIFT = 4;
 
-var REPAINT_INTERVAL = 15;
+var REFRESH_INTERVAL = 15;
+
+var Font, Color, Image, Images, NowPlaying, Seek, Volume, Wallpaper,
+  AlbumArt;
+var ww = 0,
+  wh = 0;
+
+
+// Lang map string ==================================================
+
+var langMap = (function () {
+  var lang = window.GetProperty('Language', 'auto').toLowerCase();
+  var langPack = {};
+
+  // 检测语言是否为简体中文.
+  if (('zh-hans;zh-cn;cn').indexOf(lang) === -1 || lang !== 'en') {
+    lang = (fb.TitleFormat('$meta()').Eval(true) === '[未知函数]') ? 'zh-hans' : 'en';
+  }
+  // 切换语言包.
+  switch (true) {
+    case lang === 'zh-hans':
+      langPack = {
+        'Unknown Artist': '未知艺人'
+      };
+      break;
+    default:
+      langPack = {};
+      break;
+  }
+
+  return function (str) {
+    return langPack[str] || str;
+  };
+})();
+
+// Return a zoomed value, to adapt Windows zoom percent.
+var sizeOf = (function () {
+  var objShell, tmp, factor;
+
+  objShell = new ActiveXObject('WScript.Shell');
+  tmp = objShell.RegRead('HKEY_CURRENT_USER\\Control Panel\\Desktop\\WindowMetrics\\AppliedDPI');
+  factor = Math.round(tmp / 96 * 100) / 100;
+  return function (value) {
+    return Math.round(value * factor);
+  };
+}());
 
 // Load resouces
 getFonts();
 getColor();
 getImages();
 
-// Lang map string ==================================================
-//
-// TODO: Read lang string from file in JSON format
-
-var getLocal = (function () {
-
-    var lang = window.GetProperty("LANG :: 语言", "auto").toLowerCase();
-    if (lang != "zh-hans" && lang != "en") {
-        lang = (fb.TitleFormat("$meta()").Eval(true) == "[未知函数]") ? "zh-hans" : "en";
-    }
-    var __langPack = {};
-    if (lang == "zh-hans") {
-        __langPack = {
-            "Unknown Artist": "未知艺人",
-        };
-    } else {
-        __langPack = {
-        };
-    }
-
-    return function (str) {
-        return __langPack[str] || str;
-    };
-
-})();
-
-
-// Apply DPI Zoom ============================================
-
-var getSize = function() {
-
-    // TODO
-    // ...
-
-    return function(num) {
-        return num;
-    };
-
-}
 
 
 // Animator Class: ==============================================
 
-function Animator(itv) {
-    this.timer = null;
-    this.interval = itv || 30;
+function Animator (itv) {
+  this.timer = null;
+  this.interval = itv || 30;
 }
 
 Animator.prototype = {
-    _clearTimer: function() {
-        this.timer && window.ClearInterval(this.timer);
-        this.timer = null;
-    },
-    _easing: function (p) {
-        return p;
-    },
-    start: function(duration, process, easing, onStop) {
-        var self = this;
-        var startTime = +new Date;
-        var easing = easing || this._easing;
-        this._clearTimer();
-        this.timer = window.SetInterval(function() {
-            var p = (new Date - startTime) / duration;
-            if (p < 1.0) {
-                process(easing(p));
-            } else {
-                self._clearTimer();
-                process(easing(1.0));
-                onStop && onStop();
-            }
-        }, this.interval);
-    },
+  _clearTimer: function () {
+    this.timer && window.ClearInterval(this.timer);
+    this.timer = null;
+  },
+  _easing: function (p) {
+    return p;
+  },
+  start: function (duration, process, easing, onStop) {
+    var self = this;
+    var startTime = +new Date;
+    var easing = easing || this._easing;
+    this._clearTimer();
+    this.timer = window.SetInterval(function () {
+      var p = (new Date - startTime) / duration;
+      if (p < 1.0) {
+        process(easing(p));
+      } else {
+        self._clearTimer();
+        process(easing(1.0));
+        onStop && onStop();
+      }
+    }, this.interval);
+  }
 
-}
-
+};
 
 // Button Class ========================================
 // may be extended by your self.
 
-function Button(img, w, h, func, options) {
-    this.img = img;
-    this.w = w;
-    this.h = h;
-    this.func = func;
-    this.state = 0;
-    this.options = options; // Not used yet
-    this.visible = true;
-    this.setXY(0, 0);
+function Button (img, w, h, func) {
+  this.img = img;
+  this.w = w;
+  this.h = h;
+  this.func = func;
+  this.state = 0;
+  this.visible = true;
+  this.setXY(0, 0);
 }
 
 Button.prototype = {
-    isMouseIn: function(x, y) {
-        return x > this.x && x < this.x + this.w && y > this.y && y < this.y + this.h;
-    },
-    repaint: function() {
-        window.RepaintRect(this.x, this.y, this.w, this.h);
-    },
-    setXY: function(x, y) {
-        this.x = x;
-        this.y = y;
-    },
-    setImg: function(img) {
-        this.img = img;
-    },
-    changeState: function(state) {
-        if (state == this.state) return;
-        this.state = state;
-        this.repaint();
-    },
-    // Mouse events:
-    // TODO:  may should be merged;
-    down: function(x, y) {
-        this.isMouseIn(x, y) ? this.changeState(2) : null;
-        return this.state == 2;
-    },
-    up: function (x, y) {
-        if (!this.visible) return;
-        var stateOld = this.state;
-        this.isMouseIn(x, y) ? this.changeState(1) : this.changeState(0);
-        if (stateOld == 2 && this.state == 1) {
-            this.func && this.func(x, y);
-            return true;
-        }
-        return false;
-    },
-    move: function(x, y) {
-        if (this.state != 2) {
-            this.isMouseIn(x, y) ? this.changeState(1) : this.changeState(0);
-        }
-    },
-    leave: function() {
-        this.changeState(0);
-        // TODO:  Keep btn pressed down when menu pop up
-    },
-    // xx, yy: offset from this.x, this.y;
-    draw: function(gr, xx, yy) {
-        if (!this.visible) return;
-        var x = this.x;
-        var y = this.y;
-        if (arguments.length == 3) {
-            x += xx;
-            y += yy;
-        }
-        var alpha = (this.state == 2 ? 128 : this.state == 1 ? 200 : 255);
-        var img = this.img;
-        gr.DrawImage(img, x, y, img.Width, img.Height, 0, 0, img.Width, img.Height, 0, alpha);
+  trace: function (x, y) {
+    return x > this.x && x < this.x + this.w && y > this.y && y < this.y + this.h;
+  },
+  repaint: function () {
+    window.RepaintRect(this.x, this.y, this.w, this.h);
+  },
+  setXY: function (x, y) {
+    this.x = x;
+    this.y = y;
+  },
+  setImg: function (img) {
+    this.img = img;
+  },
+  setState: function (state) {
+    if (state == this.state) return;
+    this.state = state;
+    this.repaint();
+  },
+  // Mouse events:
+  down: function (x, y) {
+    this.trace(x, y) ? this.setState(2) : null;
+    return this.state == 2;
+  },
+  up: function (x, y) {
+    if (!this.visible) return;
+    var stateOld = this.state;
+    this.trace(x, y) ? this.setState(1) : this.setState(0);
+    if (stateOld == 2 && this.state == 1) {
+      this.func && this.func(x, y);
+      return true;
+    }
+    return false;
+  },
+  move: function (x, y) {
+    if (this.state != 2) {
+      this.trace(x, y) ? this.setState(1) : this.setState(0);
+    }
+  },
+  leave: function () {
+    this.setState(0);
+  // TODO:  Keep btn pressed down when menu pop up
+  },
+  // xx, yy: offset from this.x, this.y
+  draw: function (gr, xx, yy) {
+    if (!this.visible) return;
+    var x = this.x;
+    var y = this.y;
+    if (arguments.length == 3) {
+      x += xx;
+      y += yy;
+    }
+    var alpha = (this.state == 2 ? 128 : this.state == 1 ? 200 : 255);
+    var img = this.img;
+    gr.DrawImage(img, x, y, img.Width, img.Height, 0, 0, img.Width, img.Height, 0, alpha);
 
-        dbg_mode && gr.DrawRect(x, y, this.w - 1, this.h - 1, 1, 0x20ffffff);
-    },
+    debug && gr.DrawRect(x, y, this.w - 1, this.h - 1, 1, 0x20ffffff);
+  }
 
 };
 
-function getOrderImg(order) {
-    if (typeof order == 'undefined') {
-        order = fb.PlaybackOrder;
+var Buttons = function (btns) {
+    this.btns = btns;
+    this.hbtn  = this.dbtn = null;
+};
+
+Buttons.prototype.onMouseMove = function (x, y) {
+    if (this.dbtn != null) {
+        return;
     }
-    var imgs = [
-        Images.normal,
-        Images.repeat,
-        Images.repeat1,
-        Images.shuffle
-    ];
-    return (order > 2 ? imgs[3] : imgs[order]);
-}
-
-function getPlayImg() {
-    var img;
-    if (!fb.IsPlaying || fb.IsPlaying && fb.IsPaused) {
-        img = Images.play;
-    } else {
-        img = Images.pause;
+    if (this.hbtn && this.hbtn.trace(x, y)) {
+        this.hbtn.setState(1);
+        return;
     }
-    return img;
-}
 
-function getButtons() {
-    var w = 40,
-        img = null;
-    Buttons = {};
+    var btn = null;
+    var len, i;
 
-    // get buttons
-    Buttons.prev = new Button(Images.prev, w, w, onPrev);
-    Buttons.next = new Button(Images.next, w, w, onNext);
-    Buttons.playOrPause = new Button(getPlayImg(), w, w, onPlayOrPause);
-    Buttons.order = new Button(getOrderImg(), w, w, onOrder);
-    Buttons.volume = new Button(Images.volume, w, w, onVolume);
-
-    function onPrev() {
-        fb.Prev();
-    };
-    function onNext() {
-        fb.Next();
-    };
-    function onPlayOrPause() {
-        fb.PlayOrPause();
-    };
-    function onVolume() {
-        !Volume.visible ? Volume.show() : Volume.hide(true);
-    }
-    function onOrder() {
-        var order = fb.PlaybackOrder;
-        if (order < 2) {
-            fb.PlaybackOrder += 1;
-        } else if (order == 2) {
-            fb.PlaybackOrder = shuffleType;
-        } else {
-            fb.PlaybackOrder = 0;
+    for (i = 0, len = this.btns.length; i < len; i++) {
+        if (this.btns[i].trace(x, y)) {
+            btn = this.btns[i];
+            break;
         }
     }
 
+    if (btn && this.hbtn !== btn) {
+        this.hbtn && this.hbtn.setState(0);
+        this.hbtn = btn;
+        btn.setState(1);
+    } else if (!btn && this.hbtn) {
+        this.hbtn.setState(0);
+        this.hbtn = null;
+    }
+};
+
+Buttons.prototype.onMouseDown = function (x, y) {
+    if (this.hbtn) {
+        this.dbtn = this.hbtn;
+        this.dbtn.setState(2);
+        this.hbtn = null;
+    }
+};
+
+Buttons.prototype.onMouseUp = function (x, y) {
+    if (his.dbtn) {
+        this.dbtn.trace(x, y) && this.dbtn.func && this.dbtn.func(x, y);
+        this.dbtn.setState(0);
+        this.dbtn = null;
+    }
+    this.onMouseMove(x, y);
+};
+
+Buttons.prototype.onMouseLeave = function () {
+    if (!this.hbtn) return;
+    this.hbtn.setState(0);
+    this.hbtn = null;
 }
 
-function adjustButtonsLayout() {
-    var pad = 10,
-        bw = Buttons.prev.w,
-        bx, by;
-
-    bx = ww - bw - pad;
-    by = Math.round((wh - bw) / 2);
-
-    Buttons.volume.visible = (ww > 460);
-    Buttons.order.visible = (ww > 460 - 50);
-    Buttons.prev.visible = (ww > 460 - 100);
-
-    Buttons.volume.setXY(bx, by);
-    //
-    Buttons.volume.visible && (bx -= pad + bw);
-    Buttons.order.setXY(bx, by);
-    //
-    Buttons.order.visible && (bx -= pad + bw);
-    Buttons.next.setXY(bx, by);
-    //
-    bx -= pad + bw;
-    Buttons.playOrPause.setXY(bx, by);
-    //
-    bx -= pad + bw;
-    Buttons.prev.setXY(bx, by);
-
+function getOrderImg (order) {
+  if (typeof order == 'undefined') {
+    order = fb.PlaybackOrder;
+  }
+  var imgs = [
+    Images.normal,
+    Images.repeat,
+    Images.repeat1,
+    Images.shuffle
+  ];
+  return (order > 2 ? imgs[3] : imgs[order]);
 }
 
+function getPlayImg () {
+  var img;
+  if (!fb.IsPlaying || fb.IsPlaying && fb.IsPaused) {
+    img = Images.play;
+  } else {
+    img = Images.pause;
+  }
+  return img;
+}
 
+function getButtons () {
+  var w = sizeOf(40),
+    img = null;
+  Buttons = {};
+
+  // get buttons
+  Buttons.prev = new Button(Images.prev, w, w, onPrev);
+  Buttons.next = new Button(Images.next, w, w, onNext);
+  Buttons.playOrPause = new Button(getPlayImg(), w, w, onPlayOrPause);
+  Buttons.order = new Button(getOrderImg(), w, w, onOrder);
+  Buttons.volume = new Button(Images.volume, w, w, onVolume);
+
+  function onPrev () {
+    fb.Prev();
+  }
+  function onNext () {
+    fb.Next();
+  }
+  function onPlayOrPause () {
+    fb.PlayOrPause();
+  }
+  function onVolume () {
+    !Volume.visible ? Volume.show() : Volume.hide(true);
+  }
+  function onOrder () {
+    var order = fb.PlaybackOrder;
+    if (order < 2) {
+      fb.PlaybackOrder += 1;
+    } else if (order == 2) {
+      fb.PlaybackOrder = shuffleType;
+    } else {
+      fb.PlaybackOrder = 0;
+    }
+  }
+}
+
+function adjustButtonsLayout () {
+  var pad = 10,
+    bw = Buttons.prev.w,
+    bx, by;
+
+  bx = ww - bw - pad;
+  by = Math.round((wh - bw) / 2);
+
+  Buttons.volume.visible = (ww > 460);
+  Buttons.order.visible = (ww > 460 - 50);
+  Buttons.prev.visible = (ww > 460 - 100);
+
+  Buttons.volume.setXY(bx, by);
+  //
+  Buttons.volume.visible && (bx -= pad + bw);
+  Buttons.order.setXY(bx, by);
+  //
+  Buttons.order.visible && (bx -= pad + bw);
+  Buttons.next.setXY(bx, by);
+  //
+  bx -= pad + bw;
+  Buttons.playOrPause.setXY(bx, by);
+  //
+  bx -= pad + bw;
+  Buttons.prev.setXY(bx, by);
+}
 
 // Load images, fonts, colors ==============================================
 
-function getImages() {
-    var g, w, img = null;
-    var sf = StringFormat(1, 1);
-    Images = {};
+function getImages () {
+  var g, w, img = null;
+  var sf = StringFormat(1, 1);
+  Images = {};
 
-    function getImg(code, font, color, w, h) {
-        var img = gdi.CreateImage(w, h);
-        var gb = img.GetGraphics();
-        gb.SetTextRenderingHint(3);
-        gb.DrawString(code, font, color, 0, 0, w, h, sf);
-        gb.DrawString(code, font, color, 0, 0, w, h, sf);
-        gb.SetTextRenderingHint(0);
-        img.ReleaseGraphics(gb);
-        return img;
-    }
+  function getImg (code, font, color, w, h) {
+    var img = gdi.CreateImage(w, h);
+    var gb = img.GetGraphics();
+    gb.SetTextRenderingHint(3);
+    gb.DrawString(code, font, color, 0, 0, w, h, sf);
+    gb.DrawString(code, font, color, 0, 0, w, h, sf);
+    gb.SetTextRenderingHint(0);
+    img.ReleaseGraphics(gb);
+    return img;
+  }
 
-    var icons = {
-        "prev": "\ue100",
-        "pause": "\ue103",
-        "play": "\ue102",
-        "next": "\ue101",
-        "volume": "\ue15d",
-        "shuffle": "\ue14b",
-        "repeat": "\ue149",
-        "repeat1": "\ue1cc",
-        "normal": "\ue13c",
-    };
-    var w = 40;
-    var font_assets = gdi.Font(Font.assets.Name, 18);
-    for (var i in icons) {
-        Images[i] = getImg(icons[i], font_assets, Color.fg, w, w);
-    }
+  var icons = {
+    'prev': '\ue100',
+    'pause': '\ue103',
+    'play': '\ue102',
+    'next': '\ue101',
+    'volume': '\ue15d',
+    'shuffle': '\ue14b',
+    'repeat': '\ue149',
+    'repeat1': '\ue1cc',
+    'normal': '\ue13c'
+  };
+  var w = sizeOf(40);
+  var font_assets = gdi.Font(Font.assets.Name, sizeOf(18));
+  for (var i in icons) {
+    Images[i] = getImg(icons[i], font_assets, Color.fg, w, w);
+  }
 
-    var icons2 = {
-        "volume0": "\ue992",
-        "volume1": "\ue993",
-        "volume2": "\ue994",
-        "volume3": "\ue995"
-    };
-    var w = 60 - 12;
-    for (var i in icons2) {
-        Images[i] = getImg(icons2[i], font_assets, Color.fg, w, w);
-    }
+  var icons2 = {
+    'volume0': '\ue992',
+    'volume1': '\ue993',
+    'volume2': '\ue994',
+    'volume3': '\ue995'
+  };
+  var w = sizeOf(60 - 12);
+  for (var i in icons2) {
+    Images[i] = getImg(icons2[i], font_assets, Color.fg, w, w);
+  }
 
-    // Nocover image
-    font_assets = gdi.Font(Font.assets.Name, 40);
-    Images.nocover = gdi.CreateImage(85, 85);
-    g = Images.nocover.GetGraphics();
-    g.FillSolidRect(0, 0, 85, 85, setAlpha(Color.fg, 50));
-    g.SetTextRenderingHint(4);
-    g.DrawString("\ue958", font_assets, setAlpha(Color.fg, 128), 0, 0, 85, 85, sf);
-    g.SetTextRenderingHint(0);
-    Images.nocover.ReleaseGraphics(g);
+  // Nocover image
+  font_assets = gdi.Font(Font.assets.Name, sizeOf(40));
+  var nocoverW = sizeOf(85);
+  Images.nocover = gdi.CreateImage(nocoverW, nocoverW);
+  g = Images.nocover.GetGraphics();
+  g.FillSolidRect(0, 0, nocoverW, nocoverW, setAlpha(Color.fg, 50));
+  g.SetTextRenderingHint(4);
+  g.DrawString('\ue958', font_assets, setAlpha(Color.fg, 128), 0, 0, nocoverW, nocoverW, sf);
+  g.SetTextRenderingHint(0);
+  Images.nocover.ReleaseGraphics(g);
 
-    // Slider nob images
-    w = 16;
-    Images.nob = gdi.CreateImage(w, w);
-    g = Images.nob.GetGraphics();
-    g.SetSmoothingMode(2);
-    g.FillEllipse(1, 1, w - 3, w - 3, Color.fg);
-    g.FillEllipse(3, 3, w - 7, w - 7, Color.bg);
-    g.SetSmoothingMode(0);
-    Images.nob.ReleaseGraphics(g);
+  // Slider nob images
+  w = 16;
+  Images.nob = gdi.CreateImage(w, w);
+  g = Images.nob.GetGraphics();
+  g.SetSmoothingMode(2);
+  g.FillEllipse(1, 1, w - 3, w - 3, Color.fg);
+  g.FillEllipse(3, 3, w - 7, w - 7, Color.bg);
+  g.SetSmoothingMode(0);
+  Images.nob.ReleaseGraphics(g);
 
-    font_assets.Dispose();
-
+  font_assets.Dispose();
 }
 
-function getFonts() {
-    var font_name = "segoe ui semibold"; // semibold";
-    if (!utils.CheckFont(font_name)) {
-        font_name = "tahoma";
-    }
-    Font = {};
-    Font.time = gdi.font(font_name, 12);
-    Font.small = gdi.Font(font_name, 12);
-    Font.title = gdi.Font(font_name, 14);
-    Font.assets = gdi.Font("segoe mdl2 assets", 15);
+function getFonts () {
+  var fontName = 'segoe ui semibold'; // semibold"
+  if (!utils.CheckFont(fontName)) {
+    fontName = 'tahoma';
+  }
+  Font = {};
+  Font.time = gdi.font(fontName, 12);
+  Font.small = gdi.Font(fontName, 12);
+  Font.title = gdi.Font(fontName, 14);
+  Font.assets = gdi.Font('segoe mdl2 assets', 15);
 }
 
-function getColor() {
-    Color = {};
-    Color.bg = eval(window.GetProperty("Color background", "RGB(16, 16, 16)"));
-    Color.fg = eval(window.GetProperty("Color text", "RGB(235, 235, 235)"));
-    //Color.bg = parseColor(window.GetProperty("Color background", "16-16-16"));
-    //Color.fg = parseColor(window.GetProperty("Color text", "235-235-253"));
-    //Color.bg = HEX(window.GetProperty("Color bg hex", "#000555"));
-    //Color.fg = HEX(window.GetProperty("Color fg hex", "#eeeeee"));
+function getColor () {
+  Color = {};
+  Color.bg = eval(window.GetProperty('Color background', 'RGB(16, 16, 16)'));
+  Color.fg = eval(window.GetProperty('Color text', 'RGB(235, 235, 235)'));
 }
-
-
-
-
 
 // AlbumArt obj ===================================================
 
-
 var AlbumArtId = {
-	front: 0,
-	back: 1,
-	disc: 2,
-	icon: 3,
-	artist: 4
-}
+  front: 0,
+  back: 1,
+  disc: 2,
+  icon: 3,
+  artist: 4
+};
 
 AlbumArt = {
+  timer: null,
 
-    timer: null,
-
-    // Callback function recieve 3 params: metadb, art_id, image;
-    getAsync: function (metadb, artID, callback, options) {
-        var embedded, force;
-        if (options && typeof options == 'object') {
-            embedded = options.embedded || false;
-            force = options.force || false;
+  // Callback function recieve 3 params: metadb, art_id, image
+  getAsync: function (metadb, artID, callback, options) {
+    var embedded, force;
+    if (options && typeof options == 'object') {
+      embedded = options.embedded || false;
+      force = options.force || false;
+    }
+    if (!metadb) {
+      return null;
+    }
+    var img;
+    window.SetTimeout(function () {
+      if (embedded && metadb.Path.indexOf('://') == -1) {
+        img = utils.GetAlbumArtEmbedded(metadb.RawPath, artID);
+        if (!img && force) {
+          for (var i in AlbumArtId) {
+            if (AlbumArtId[i] == AlbumArtId.icon) continue; // do not load icon images
+            img = utils.GetAlbumArtV2(metadb, AlbumArtId[i], false);
+            if (img) break;
+          }
         }
-        if (!metadb) {
-            return null;
+      } else {
+        img = utils.GetAlbumArtV2(metadb, artID, false);
+        // if force == true, try to search all type of album art before
+        // got one.
+        if (force && !img) {
+          for (var i in AlbumArtId) {
+            if (AlbumArtId[i] == artID) continue;
+            if (AlbumArtId[i] == AlbumArtId.icon) continue; // do not load icon images
+            img = utils.GetAlbumArtV2(metadb, AlbumArtId[i], false);
+            if (img) break;
+          }
         }
-        var img;
-        window.SetTimeout(function() {
-            if (embedded && metadb.Path.indexOf("://") == -1) {
-                img = utils.GetAlbumArtEmbedded(metadb.RawPath, artID);
-                if (!img && force) {
-                    for (var i in AlbumArtId) {
-                        if (AlbumArtId[i] == AlbumArtId.icon) continue; // do not load icon images
-                        img = utils.GetAlbumArtV2(metadb, AlbumArtId[i], false);
-                        if (img) break;
-                    }
-                }
-            } else {
-                img = utils.GetAlbumArtV2(metadb, artID, false);
-                // if force == true, try to search all type of album art before
-                // got one.
-                if (force && !img) {
-                    for (var i in AlbumArtId) {
-                        if (AlbumArtId[i] == artID) continue;
-                        if (AlbumArtId[i] == AlbumArtId.icon) continue; // do not load icon images
-                        img = utils.GetAlbumArtV2(metadb, AlbumArtId[i], false);
-                        if (img) break;
-                    }
-                }
-            }
-            callback && callback(metadb, artID, img);
-            return null;
-        }, 15);
-    },
-    download: function () {
-        // TODO
-    },
-}
-
+      }
+      callback && callback(metadb, artID, img);
+      return null;
+    }, 15);
+  },
+  download: function () {
+    // TODO
+  }
+};
 
 // Image module to process images =============================================
 
 Image = {
+  loadAsync: function () {},
 
-    loadAsync: function() {
-    },
+  clone: function (img) {
+    if (!img) return null;
+    return img.Clone(0, 0, img.Width, img.Height);
+  },
 
-    clone: function(img) {
-        if (!img) return null;
-        return img.Clone(0, 0, img.Width, img.Height); 
-    },
+  resize: function (img, w, h, aspect, interpolation) {
+    if (!img) return null;
 
-    resize: function(img, w, h, aspect, interpolation) {
-        if (!img) return null;
-
-        var _w, _h;
-        switch (aspect) {
-            case IMG_ADAPT:
-                var scale = 0;
-                if (Math.max(img.Width, img.Height) < Math.min(w, h)) {
-                    scale = 1;
-                } else {
-                    scale = Math.min(w / img.Width, h / img.Height);
-                }
-                _w = Math.floor(scale * img.Width);
-                _h = Math.floor(scale * img.Height);
-                break;
-
-            case IMG_CROP:
-                var scale = Math.max(w / img.Width, h / img.Height);
-                _w = Math.ceil(scale * img.Width);
-                _h = Math.ceil(scale * img.Height);
-
-                if (_w > w) {
-                    var img_ = img.Resize(_w, _h, interpolation);
-                    var _x = Math.floor((_w - w) /2);
-                    _w = w;
-                    img = img_.Clone(_x, 0, _w, _h);
-                }
-                if (_h > h) {
-                    var img_ = img.Resize(_w, _h, interpolation);
-                    var _y = Math.floor((_h - h) / 2);
-                    _h = h;
-                    img = img_.Clone(0, _y, _w, _h);
-                }
-                break;
-
-            case IMG_STRETCH:
-                _w = w;
-                _h = h;
-                break;
-
-            case IMG_FILL:
-                var scale = Math.max(w / img.Width, h / img.Height);
-
-                _w = Math.ceil(scale * img.Width);
-                _h = Math.ceil(scale * img.Height);
-                break;
+    var _w, _h;
+    switch (aspect) {
+      case IMG_ADAPT:
+        var scale = 0;
+        if (Math.max(img.Width, img.Height) < Math.min(w, h)) {
+          scale = 1;
+        } else {
+          scale = Math.min(w / img.Width, h / img.Height);
         }
+        _w = Math.floor(scale * img.Width);
+        _h = Math.floor(scale * img.Height);
+        break;
 
-        return img.Resize(_w, _h, interpolation);
-    },
+      case IMG_CROP:
+        var scale = Math.max(w / img.Width, h / img.Height);
+        _w = Math.ceil(scale * img.Width);
+        _h = Math.ceil(scale * img.Height);
 
-    isValid: function(img) {
-        return (typeof img == "object" && "applyAlpha" in img);
-    },
+        if (_w > w) {
+          var img_ = img.Resize(_w, _h, interpolation);
+          var _x = Math.floor((_w - w) / 2);
+          _w = w;
+          img = img_.Clone(_x, 0, _w, _h);
+        }
+        if (_h > h) {
+          var img_ = img.Resize(_w, _h, interpolation);
+          var _y = Math.floor((_h - h) / 2);
+          _h = h;
+          img = img_.Clone(0, _y, _w, _h);
+        }
+        break;
 
+      case IMG_STRETCH:
+        _w = w;
+        _h = h;
+        break;
 
-    applyShadow: function(image, w, h, interpolation, padding) {
-        if (!this.isValid(image)) {
-            return null;
-        };
-        var img = image.Resize(w, h, interpolation);
-        var g = null;
-        
-        var shadow = gdi.createImage(w + 2 * padding, h + 2 * padding);
-        g = shadow.GetGraphics();
-        g.SetSmoothingMode(2);
-        g.drawRoundRect(padding, padding, w, h, 2, 2, 2, 0xff000000);
-        shadow.ReleaseGraphics(g);
-        shadow.BoxBlur(1, 2);
+      case IMG_FILL:
+        var scale = Math.max(w / img.Width, h / img.Height);
 
-        var ret = gdi.createImage(w + 2 * padding, h + 2 * padding);
-        g = ret.GetGraphics();
-        g.DrawImage(shadow, 0, 0, shadow.Width, shadow.Height, 0, 0, shadow.Width, shadow.Height, 0, 128);
-        g.DrawImage(img, padding, padding, img.Width, img.Height, 0, 0, img.Width, img.Height, 0, 255);
-        g.DrawRect(padding, padding, w, h, 1, setAlpha(0xff000000, 64));
-        ret.ReleaseGraphics(g);
+        _w = Math.ceil(scale * img.Width);
+        _h = Math.ceil(scale * img.Height);
+        break;
+    }
 
-        img.Dispose();
-        shadow.Dispose();
+    return img.Resize(_w, _h, interpolation);
+  },
 
-        return ret;
-    },
+  isValid: function (img) {
+    return (typeof img == 'object' && 'applyAlpha' in img);
+  },
 
-}
+  applyShadow: function (image, w, h, interpolation, padding) {
+    if (!this.isValid(image)) {
+      return null;
+    }
+    var img = image.Resize(w, h, interpolation);
+    var g = null;
 
+    var shadow = gdi.createImage(w + 2 * padding, h + 2 * padding);
+    g = shadow.GetGraphics();
+    g.SetSmoothingMode(2);
+    g.drawRoundRect(padding, padding, w, h, 2, 2, 2, 0xff000000);
+    shadow.ReleaseGraphics(g);
+    shadow.BoxBlur(1, 2);
+
+    var ret = gdi.createImage(w + 2 * padding, h + 2 * padding);
+    g = ret.GetGraphics();
+    g.DrawImage(shadow, 0, 0, shadow.Width, shadow.Height, 0, 0, shadow.Width, shadow.Height, 0, 128);
+    g.DrawImage(img, padding, padding, img.Width, img.Height, 0, 0, img.Width, img.Height, 0, 255);
+    g.DrawRect(padding, padding, w, h, 1, setAlpha(0xff000000, 64));
+    ret.ReleaseGraphics(g);
+
+    img.Dispose();
+    shadow.Dispose();
+
+    return ret;
+  }
+
+};
 
 // Slider class =====================================================
 // progressbar, volumebar, etc.
 
 function Slider (img, height, getpos, setpos) {
-    this.img = img; // nob image
-    this.height = height; // visual height
-    this.visible = true;
-    this.getpos = getpos || function() {};
-    this.setpos = setpos || function() { return -1; };
-    this.drag = false;
+  this.img = img; // nob image
+  this.height = height; // visual height
+  this.visible = true;
+  this.getpos = getpos || function () {};
+  this.setpos = setpos || function () { return -1; };
+  this.drag = false;
 
-    this.pos = this.getpos();
-    this.dragpos = 0;
-    this.size(0, 0, 0, 0);
+  this.pos = this.getpos();
+  this.dragpos = 0;
+  this.size(0, 0, 0, 0);
 }
 
 Slider.prototype = {
-    isMouseIn: function(x, y) {
-        var l = (this.img ? this.img.Width / 2 : 0);
-        return (x > this.x - l && x < this.x + this.w + l && y > this.y && y < this.y + this.h);
-    },
-    repaint: function() {
-        var l = (this.img ? this.img.Width / 2 : 0);
-        window.RepaintRect(this.x - l, this.y, this.w + l * 2, this.h);
-    },
-    refresh: function() {
-        this.pos = this.getpos();
-        this.repaint();
-    },
-    draw: function(gr) {
-        if (!this.visible) return;
-        if (this.height > this.h) return;
-        if (this.w <= 0) return;
-        var yoff = Math.round((this.h - this.height) / 2),
-            img_w, img_h, img_x, img_y;
-        gr.FillSolidRect(this.x, this.y + yoff, this.w, this.height, setAlpha(Color.fg, 128));
-        if (this.pos > 0 || this.pos <= 1) {
-            gr.FillSolidRect(this.x, this.y + yoff, this.w * this.pos, this.height, Color.fg);
-        }
-        if (this.img && isNumeric(this.pos)) {
-            img_w = this.img.Width;
-            img_h = this.img.Height;
-            img_x = this.x + this.w * (this.drag ? this.dragpos : this.pos) - img_w / 2;
-            img_y = (this.h - img_h) / 2 + this.y;
-            gr.DrawImage(this.img, img_x, img_y, img_w, img_h, 0, 0, this.img.Width, this.img.Height, 0, 255);
-        }
+  trace: function (x, y) {
+    var l = (this.img ? this.img.Width / 2 : 0);
+    return (x > this.x - l && x < this.x + this.w + l && y > this.y && y < this.y + this.h);
+  },
+  repaint: function () {
+    var l = (this.img ? this.img.Width / 2 : 0);
+    window.RepaintRect(this.x - l, this.y, this.w + l * 2, this.h);
+  },
+  refresh: function () {
+    this.pos = this.getpos();
+    this.repaint();
+  },
+  draw: function (gr) {
+    if (!this.visible) return;
+    if (this.height > this.h) return;
+    if (this.w <= 0) return;
+    var yoff = Math.round((this.h - this.height) / 2),
+      img_w, img_h, img_x, img_y;
+    gr.FillSolidRect(this.x, this.y + yoff, this.w, this.height, setAlpha(Color.fg, 128));
+    if (this.pos > 0 || this.pos <= 1) {
+      gr.FillSolidRect(this.x, this.y + yoff, this.w * this.pos, this.height, Color.fg);
+    }
+    if (this.img && isNumeric(this.pos)) {
+      img_w = this.img.Width;
+      img_h = this.img.Height;
+      img_x = this.x + this.w * (this.drag ? this.dragpos : this.pos) - img_w / 2;
+      img_y = (this.h - img_h) / 2 + this.y;
+      gr.DrawImage(this.img, img_x, img_y, img_w, img_h, 0, 0, this.img.Width, this.img.Height, 0, 255);
+    }
 
-        dbg_mode && gr.DrawRect(this.x, this.y, this.w - 1, this.h - 1, 1, 0x20ffffff);
-
-    },
-    size: function(x, y, w, h) {
-        this.x = x;
-        this.y = y;
-        this.w = w;
-        this.h = h;
-        if (!this.visible) this.w = this.h = 0;
-    },
-    // Mouse events:
-    move: function(x, y) {
-        if (!this.visible) return;
-        if (this.drag) {
-            x -= this.x;
-            this.dragpos = x < 0 ? 0 : x > this.w ? 1 : x / this.w;
-            this.repaint();
-            //this.setpos(this.pos);
-        };
-    },
-    down: function(x, y) {
-        if (this.isMouseIn(x, y)) {
-            this.drag = true;
-            this.move(x, y);
-        }
-    },
-    up: function(x, y) {
-        if (this.drag) {
-            this.pos = this.dragpos;
-            this.setpos(this.dragpos);
-            this.drag = false;
-            this.repaint();
-        }
-    },
-}
-
-
+    debug && gr.DrawRect(this.x, this.y, this.w - 1, this.h - 1, 1, 0x20ffffff);
+  },
+  size: function (x, y, w, h) {
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+    if (!this.visible) this.w = this.h = 0;
+  },
+  // Mouse events:
+  move: function (x, y) {
+    if (!this.visible) return;
+    if (this.drag) {
+      x -= this.x;
+      this.dragpos = x < 0 ? 0 : x > this.w ? 1 : x / this.w;
+      this.repaint();
+    // this.setpos(this.pos)
+    }
+  },
+  down: function (x, y) {
+    if (this.trace(x, y)) {
+      this.drag = true;
+      this.move(x, y);
+    }
+  },
+  up: function (x, y) {
+    if (this.drag) {
+      this.pos = this.dragpos;
+      this.setpos(this.dragpos);
+      this.drag = false;
+      this.repaint();
+    }
+  }
+};
 
 // progressbar
 
-function getSeek() {
-
-    var onGet = function() {
-        try {
-            return fb.PlaybackTime / fb.PlaybackLength;
-        } catch (e) {
-            return 0;
-        }
+function getSeek () {
+  var onGet = function () {
+    try {
+      return fb.PlaybackTime / fb.PlaybackLength;
+    } catch (e) {
+      return 0;
     }
+  };
 
-    var onSet = function(pos) {
-        try {
-            fb.PlaybackTime = fb.PlaybackLength * pos;
-        } catch (e) {};
-    };
+  var onSet = function (pos) {
+    try {
+      fb.PlaybackTime = fb.PlaybackLength * pos;
+    } catch (e) {}
+  };
 
-    Seek = new Slider(Images.nob, 2, onGet, onSet);
-
+  Seek = new Slider(Images.nob, 2, onGet, onSet);
 }
-
-
 
 // Nowplaying info button ======================================================
 
-function NowPlaying() {
-    this.state = 0;
-    this.func = null; // onClick function
-    this.img = null; // displayed image of album art.
-    this.imgcache = null; // raw image of album art.
-    this.nocover = Images.nocover;
-    this.visible = true;
-    this.albumold = "#@!";
+function NowPlaying () {
+  this.state = 0;
+  this.func = null; // onClick function
+  this.img = null; // displayed image of album art.
+  this.imgcache = null; // raw image of album art.
+  this.nocover = Images.nocover;
+  this.visible = true;
+  this.albumold = '#@!';
 
-    // tf objects
-    this.TF_TITLE = fb.TitleFormat("%title%");
-    this.TF_ART = fb.TitleFormat("$if2([%artist%]," + getLocal("Unknown Artist") + ")");
-    this.TF_ART_ALB = fb.TitleFormat("%album artist%^^%album%");
-
+  // tf objects
+  this.TF_TITLE = fb.TitleFormat('%title%');
+  this.TF_ART = fb.TitleFormat('$if2([%artist%],' + langMap('Unknown Artist') + ')');
+  this.TF_ART_ALB = fb.TitleFormat('%album artist%^^%album%');
 }
 extend(NowPlaying, Button);
 NowPlaying = new NowPlaying();
 
 // Set NowPlaying on-click function
-NowPlaying.func = function() {
+NowPlaying.func = function () {
+  if (!fb.IsPlaying) return;
 
-    if (!fb.IsPlaying) return;
-
-    fb.ActivePlaylist = fb.PlayingPlaylist;
-    //fb.RunMainMenuCommmand("视图/显示正在播放项目");
-    fb.RunMainMenuCommand(getLocal("视图/显示列表正在播放项目"));
-    dbg_trace("Track clicked");
-
-}
-
-NowPlaying.getAlbumArt = function(metadb) {
-
-    var alb_str;
-    var self = this;
-
-    // callback
-    this.onGetAlbumArt = function (metadb, artId, image) {
-        // Cache image for other usage.
-        self.imgcache = image;
-        if (self.imgcache && self.h > 10) {
-            //self.img = self.imgcache.Resize(self.h - 10, self.h - 10, 7);
-            self.img = Image.resize(self.imgcache, self.h - 10, self.h - 10, IMG_CROP, 7);
-        }
-        // Gen nocover image, should be exec only once.
-        if (!self.nocover || self.nocover.Width != self.h - 10) {
-            self.nocover = Images.nocover.Resize(self.h - 10, self.h - 10, 7);
-        }
-        self.repaint();
-        Wallpaper.update();
-    }
-
-    // get on album switch
-    if (metadb) {
-        alb_str = this.TF_ART_ALB.EvalWithMetadb(metadb);
-        if (alb_str != this.albumold) {
-            this.img = null;
-            this.imgcache = null;
-            AlbumArt.getAsync(metadb, AlbumArtId.front, this.onGetAlbumArt, { force: true });
-            this.albumold = alb_str;
-        }
-    } else {
-        this.imgcache = null;
-        this.img = null;
-    }
-
-    CollectGarbage();
-    this.repaint();
-
-}
-
-var blendbf = function (fg, bg) {
-    return function (factor) {
-        return blendColors(fg, bg, factor);
-    }
-}
-
-NowPlaying.draw = function(gr) {
-    if (!fb.IsPlaying) return;
-    if (this.h < wh) return;
-
-    // album art image
-    if (this.img) {
-        gr.DrawImage(this.img,  this.x + 5,  this.y + 5, this.h - 10, this.h - 10, 0, 0, this.img.Width, this.img.Height, 0, 225);
-    } else {
-        this.nocover && gr.DrawImage(this.nocover, this.x + 5, this.y + 5, this.h - 10, this.h - 10, 0, 0, this.nocover.Width, this.nocover.Height, 0, 255);
-    }
-
-    var blend = blendbf(Color.fg, Color.bg);
-    
-    // track info
-    if (this.w > this.h + 50) {
-        var infoX = this.x + this.h + 5;
-        var infoY = this.y + this.h / 2 - Font.title.Height - 5; 
-        gr.GdiDrawText(this.TF_TITLE.Eval(), Font.title, Color.fg, infoX, infoY, this.x + this.w - infoX - 5, 30, DT_LT);
-        infoY += Math.round(Font.title.Height * 1.25);
-        gr.GdiDrawText(this.TF_ART.Eval(), Font.title, blend(0.2), infoX, infoY, this.x + this.w - infoX - 5, 30, DT_LT);
-    };
-
-    // hover color
-    var overlay = this.state == 1 ? setAlpha(0xffffffff, 10) : setAlpha(0xffffffff, 20);
-    this.state && gr.FillSolidRect(this.x, this.y, this.w, this.h, overlay);
-
-
-    dbg_mode && gr.DrawRect(this.x, this.y, this.w - 1, this.h - 1, 1, 0x20ffffff);
-    
+  fb.ActivePlaylist = fb.PlayingPlaylist;
+  fb.RunMainMenuCommand(langMap('视图/显示列表正在播放项目'));
+  console.log('Track clicked');
 };
 
-NowPlaying.size = function(x, y, w, h) {
-    this.x = x;
-    this.y = y;
-    this.w = w;
-    if (this.w <= h + 50) this.w = Math.min(w, h);
-    this.h = Math.min(w, h);
-    this.onSize && this.onSize();
-}
+NowPlaying.getAlbumArt = function (metadb) {
+  var alb_str;
+  var self = this;
 
-NowPlaying.onSize = function() {
+  // callback
+  this.onGetAlbumArt = function (metadb, artId, image) {
+    // Cache image for other usage.
+    self.imgcache = image;
+    if (self.imgcache && self.h > 10) {
+      // self.img = self.imgcache.Resize(self.h - 10, self.h - 10, 7)
+      self.img = Image.resize(self.imgcache, self.h - 10, self.h - 10, IMG_CROP, 7);
+    }
+    // Gen nocover image, should be exec only once.
+    if (!self.nocover || self.nocover.Width != self.h - 10) {
+      self.nocover = Images.nocover.Resize(self.h - 10, self.h - 10, 7);
+    }
+    self.repaint();
+    Wallpaper.update();
+  };
 
-}
+  // get on album switch
+  if (metadb) {
+    alb_str = this.TF_ART_ALB.EvalWithMetadb(metadb);
+    if (alb_str != this.albumold) {
+      this.img = null;
+      this.imgcache = null;
+      AlbumArt.getAsync(metadb, AlbumArtId.front, this.onGetAlbumArt, { force: true });
+      this.albumold = alb_str;
+    }
+  } else {
+    this.imgcache = null;
+    this.img = null;
+  }
 
+  CollectGarbage();
+  this.repaint();
+};
+
+NowPlaying.draw = function (gr) {
+  if (!fb.IsPlaying) return;
+  if (this.h < wh) return;
+
+  // album art image
+  if (this.img) {
+    gr.DrawImage(this.img, this.x + 5, this.y + 5, this.h - 10, this.h - 10, 0, 0, this.img.Width, this.img.Height, 0, 225);
+  } else {
+    this.nocover && gr.DrawImage(this.nocover, this.x + 5, this.y + 5, this.h - 10, this.h - 10, 0, 0, this.nocover.Width, this.nocover.Height, 0, 255);
+  }
+
+  // track info
+  if (this.w > this.h + 50) {
+    var infoX = this.x + this.h + 5;
+    var infoY = this.y + this.h / 2 - Font.title.Height - 5;
+    gr.GdiDrawText(this.TF_TITLE.Eval(), Font.title, Color.fg, infoX, infoY, this.x + this.w - infoX - 5, 30, DT_LT);
+    infoY += Math.round(Font.title.Height * 1.25);
+    gr.GdiDrawText(this.TF_ART.Eval(), Font.title, Color.fg, infoX, infoY, this.x + this.w - infoX - 5, 30, DT_LT);
+  }
+
+  // hover color
+  var overlay = this.state == 1 ? setAlpha(0xffffffff, 10) : setAlpha(0xffffffff, 20);
+  this.state && gr.FillSolidRect(this.x, this.y, this.w, this.h, overlay);
+
+  debug && gr.DrawRect(this.x, this.y, this.w - 1, this.h - 1, 1, 0x20ffffff);
+};
+
+NowPlaying.size = function (x, y, w, h) {
+  this.x = x;
+  this.y = y;
+  this.w = w;
+  if (this.w <= h + 50) this.w = Math.min(w, h);
+  this.h = Math.min(w, h);
+  this.onSize && this.onSize();
+};
+
+NowPlaying.onSize = function () {};
 
 // Volume ================================================
 
 Volume = {
+  w: 260,
+  h: 60,
+  visible: false,
+  getVolImg: function () {
+    var val = vol2pos(fb.Volume);
+    var imgs = [Images.volume0, Images.volume1, Images.volume2, Images.volume3, Images.volume3];
 
-    w: 240,
-    h: 60,
-    visible: false,
-    getVolImg: function() {
-        var val = vol2pos(fb.Volume);
-        var imgs = [Images.volume0, Images.volume1, Images.volume2, Images.volume3, Images.volume3];
+    return imgs[Math.ceil(val / 0.3)];
+  },
 
-        return imgs[Math.ceil(val / 0.3)];
-    },
+  getButton: function () {
+    this.button = new Button(Volume.getVolImg(), Images.volume0.Width, Images.volume0.Height, function () {fb.VolumeMute(); });
+  },
 
-    getButton: function() {
-        this.button = new Button(Volume.getVolImg(), this.h - 12, this.h - 12, function () {fb.VolumeMute() });
-    },
+  setXY: function (x, y) {
+    this.x = x;
+    this.y = y;
+  },
 
-    setXY: function(x, y){
-        this.x = x;
-        this.y = y;
-    },
+  trace: function (x, y) {
+    return (x > this.x && x < this.x + this.w && y > this.y && y < this.y + this.h);
+  },
 
-    isMouseIn: Button.prototype.isMouseIn,
+  getImg: function () {
+    var img, g;
 
-    getImg: function() {
-        var img, g;
+    img = gdi.CreateImage(this.w, this.h);
+    g = img.GetGraphics();
+    g.FillSolidRect(0, 0, this.w - 1, this.h - 1, RGB(64, 64, 64));
+    g.DrawRect(0, 0, this.w - 1, this.h - 1, 1, RGB(32, 32, 32));
+    img.ReleaseGraphics(g);
+    this.img = Image.applyShadow(img, this.w - 12, this.h - 12, 7, 6);
+    img.Dispose();
+  },
 
-        img = gdi.CreateImage(this.w, this.h);
-        g = img.GetGraphics();
-        g.FillSolidRect(0, 0, this.w - 1, this.h - 1, RGB(64, 64, 64));
-        g.DrawRect(0, 0, this.w - 1, this.h - 1, 1, RGB(32, 32, 32));
-        img.ReleaseGraphics(g);
-        this.img = Image.applyShadow(img, this.w - 12, this.h - 12, 7, 6);
-        img.Dispose();
-    }, 
+  hide: function (force) {
+    var self = Volume;
 
-    hide: function(force) {
-        var self = Volume;
+    if (force) {
+      self.visible = false;
+      repaintAll();
+      return;
+    }
 
-        if (force) {
-            self.visible = false;
-            repaintAll();
-            return;
-        }
+    this.timerId = window.setTimeout(function () {
+      self.visible = false;
+      repaintAll();
+      self.timerId && window.ClearTimeout(self.timerId);
+      self.timerId = null;
+    }, 3000);
+  },
 
-        this.timerId = window.setTimeout(function() {
-            self.visible = false;
-            repaintAll();
-            self.timerId && window.ClearTimeout(self.timerId);
-            self.timerId = null;
-        }, 5000);
-    },
+  show: function () {
+    if (this.visible) {
+      this.timerId && window.ClearTimeout(this.timerId);
+      this.timerId = null;
+    }
 
-    show: function() {
-        if (this.visible) {
-            this.timerId &&  window.ClearTimeout(this.timerId);
-            this.timerId = null;
-        }
+    this.visible = true;
+    if (!Image.isValid(this.img)) {
+      this.getImg();
+    }
 
-        this.visible = true;
-        if (!Image.isValid(this.img)) {
-            this.getImg();
-        }
+    this.onSize();
+    repaintAll();
+    this.hide();
+  },
 
-        this.onSize();
-        repaintAll();
-        this.hide();
+  draw: function (gr) {
+    if (!this.visible) return;
 
-        /*
-        if (visible_old) {
-            this.timerId && window.ClearTimeout(this.timerId);
-            this.timerId = null;
-            repaintAll();
-            this.hide();
-        } else {
-            this.timerId && window.ClearTimeout(this.timerId);
-            this.timerId = null;
-            repaintAll();
-            this.hide();
-        }
-        */
-    },
+    gr.DrawImage(this.img, this.x, this.y, this.w, this.h, 0, 0, this.img.Width, this.img.Height, 0, 255);
+    this.button.setImg(this.getVolImg());
+    this.button.draw(gr);
+    // draw slider
+    this.slider.draw(gr);
+  },
 
-    draw: function(gr) {
-        if (!this.visible) return;
+  onSize: function () {
+    this.setXY((ww - this.w) / 2, (wh - this.h) / 2);
+    // draw button
+    if (!this.button) this.getButton();
+    this.button.setXY(Math.round(this.x + 6), Math.round(this.y + 6));
+    if (!this.slider) this.getSlider();
+    this.slider.visible = this.visible;
+    this.slider.size(this.button.x + this.button.w + 10, this.y + (this.h - 20) / 2, this.w - this.button.w - 40, 20);
+  },
 
-        this.setXY((ww - this.w) / 2, (wh - this.h) / 2);
-        gr.DrawImage(this.img, this.x, this.y, this.w, this.h, 0, 0, this.img.Width, this.img.Height, 0, 255);
+  getSlider: function () {
+    function getpos () {
+      return vol2pos(fb.Volume);
+    }
 
-        this.button.setImg(this.getVolImg());
-        this.button.draw(gr);
-        // draw slider
-        this.slider.draw(gr);
+    function setpos (pos) {
+      fb.Volume = pos2vol(pos);
+    }
 
+    this.slider = new Slider(Images.nob, 2, getpos, setpos);
+  },
 
-    },
+  move: function (x, y) {
+    if (!this.visible) return;
 
-    onSize: function() {
-        this.setXY((ww - this.w ) / 2, (wh - this.h) / 2);
-        // draw button
-        if (!this.button) this.getButton();
-        this.button.setXY(this.x + 6, this.y + 6);
-        if (!this.slider) this.getSlider();
-        this.slider.visible = this.visible;
-        this.slider.size(this.button.x + this.button.w + 10, this.y + (this.h - 20) / 2, this.w - this.button.w - 30, 20);
-    },
+    this.trace(x, y) && this.show();
+    this.button.move(x, y);
+    this.slider.move(x, y);
+  },
+  down: function (x, y) {
+    if (!this.visible) return;
 
+    this.trace(x, y) && this.show();
+    this.button.down(x, y);
+    this.slider.down(x, y);
+  },
+  up: function (x, y) {
+    if (!this.visible) return;
 
-    getSlider: function() {
-        function getpos() {
-            return vol2pos(fb.Volume);
-        }
+    this.trace(x, y) && this.show();
+    this.button.up(x, y);
+    this.slider.up(x, y);
+  },
+  leave: function () {
+    if (!this.visible) return;
 
-        function setpos(pos) {
-            fb.Volume = pos2vol(pos);
-        }
+    this.button.leave();
+  }
 
-        this.slider = new Slider(Images.nob, 2, getpos, setpos);
-    },
-
-    move: function(x, y) {
-        if (!this.visible) return;
-
-        this.isMouseIn(x, y) && this.show();
-        this.button.move(x, y);
-        this.slider.move(x, y);
-    },
-    down: function(x, y) {
-        if (!this.visible) return;
-
-        this.isMouseIn(x, y) && this.show();
-        this.button.down(x, y);
-        this.slider.down(x, y);
-    },
-    up: function(x, y) {
-        if (!this.visible) return;
-
-        this.isMouseIn(x, y) && this.show();
-        this.button.up(x, y);
-        this.slider.up(x, y);
-    },
-    leave: function() {
-        if (!this.visible) return;
-
-        this.button.leave();
-    },
-
-}
-
-
-
-
+};
 
 // Wallpaper ============================================================
 
 Wallpaper = {
+  src: null,
+  cache: null,
+  timer: null,
+  show: window.GetProperty('Wallpaper display', true),
+  blur: window.GetProperty('Wallpaper blurred', true),
+  // StackBlur param, (0 - 255).
+  blurVal: window.GetProperty('Wallpaper blurred value', 45),
+  alpha: window.GetProperty('Wallpaper alpha', 150),
 
-    src: null,
-    cache: null,
-    timer: null,
-    show: window.GetProperty("Wallpaper display", true),
-    blur: window.GetProperty("Wallpaper blurred", true),
-    // StackBlur param, (0 - 255).
-    blurVal: window.GetProperty("Wallpaper blurred value", 45),
-    alpha: window.GetProperty("Wallpaper alpha", 150),
+  getImg: function (img) {
+    if (!img) {
+      return null;
+    }
+    img = Image.resize(img, ww, wh, IMG_FILL);
+    if (this.blurVal < 0 || this.blurVal > 255) {
+      this.blurVal = 45;
+      window.SetProperty('Wallpaper blurred value', this.blurVal);
+    }
+    if (this.blur && this.blurVal > 0) {
+      img.StackBlur(this.blurVal, 2);
+    }
+    var cutX = Math.round((img.Width - ww) / 2);
+    try {
+      return img.Clone(cutX, img.Height - wh - 5, ww, wh);
+    } catch (e) {
+      return null;
+    }
+  },
 
-    getImg: function(img) {
-        if (!img) {
-            return null;
-        }
-        img = Image.resize(img, ww, wh, IMG_FILL);
-        if (this.blurVal < 0 || this.blurVal > 255) {
-            this.blurVal = 45;
-            window.SetProperty("Wallpaper blurred value", this.blurVal);
-        }
-        if (this.blur && this.blurVal > 0) {
-            img.StackBlur(this.blurVal, 2);
-        }
-        var cutX = Math.round((img.Width - ww) / 2);
-        try {
-            return img.Clone(cutX, img.Height - wh - 5, ww, wh);
-        } catch (e) {
-            return null;
-        }
-    },
+  update: function () {
+    if (!this.show) return;
+    this.cache = this.src;
+    this.src = NowPlaying.imgcache ? this.getImg(NowPlaying.imgcache) : null;
+    var alpha = 0;
+    repaintAll();
+  },
 
-    update: function() {
-        if (!this.show) return;
-        this.cache = this.src;
-        this.src = NowPlaying.imgcache ? this.getImg(NowPlaying.imgcache) : null;
-        var alpha = 0;
-        repaintAll();
-    },
+  onSize: debounce(function () {
+    Wallpaper.update();
+  }),
 
-    onSize: debounce(function() {
-        Wallpaper.update();
-    }),
-
-    draw: function(gr) {
-        if (fb.IsPlaying && this.src && this.show) {
-            gr.DrawImage(this.src, 0, 0, ww, wh, 0, 0, this.src.Width, this.src.Height, 0, 255);
-            gr.FillSolidRect(0, 0, ww, wh, setAlpha(Color.bg, this.alpha));
-        } else {
-            gr.FillSolidRect(0, 0, ww, wh, Color.bg);
-        }
-    },
+  draw: function (gr) {
+    if (fb.IsPlaying && this.src && this.show) {
+      gr.DrawImage(this.src, 0, 0, ww, wh, 0, 0, this.src.Width, this.src.Height, 0, 255);
+      gr.FillSolidRect(0, 0, ww, wh, setAlpha(Color.bg, this.alpha));
+    } else {
+      gr.FillSolidRect(0, 0, ww, wh, Color.bg);
+    }
+  }
 
 };
 
-
-
-
-
-
-
-
 // helpers: // tool function ==================================================
 
+var repaintAll = throttle(function () {
+  window.Repaint();
+}, REFRESH_INTERVAL);
 
-var repaintAll = throttle(function() {
-        window.Repaint();
-}, REPAINT_INTERVAL);
+var console = {
+  log: function (str) {
+    debug && fb.trace(str);
+  }
+};
 
-function dbg_trace(str) {
-    dbg_mode && fb.trace(str);
-}
-
-function alert(str) {
-    fb.ShowPopupMessage(str, "WSH Panel Mod Plus");
+function alert (str) {
+  fb.ShowPopupMessage(str, 'WSH Panel Mod Plus');
 }
 
 // Refer: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/isArray
 function isArray (arg) {
-    return Object.prototype.toString.call(arg) === '[object Array]';
-};
+  return Object.prototype.toString.call(arg) === '[object Array]';
+}
 
 // jQuery.isNumeric()
 function isNumeric (obj) {
-    return !isArray(obj) && (obj - parseFloat(obj) + 1) >= 0;
+  return !isArray(obj) && (obj - parseFloat(obj) + 1) >= 0;
 }
 
 function isFunction (obj) {
-    return Object.prototype.toString.call(obj) == "[object Function]";
+  return Object.prototype.toString.call(obj) == '[object Function]';
 }
 
 // Used in gdi.DrawString
-function StringFormat() {
-    var h_align = 0,
-        v_align = 0,
-        trimming = 0,
-        flags = 0;
-    switch (arguments.length) {
-        case 4:
-            flags = arguments[3];
-        case 3:
-            trimming = arguments[2];
-        case 2:
-            v_align = arguments[1];
-        case 1:
-            h_align = arguments[0];
-            break;
-        default:
-            return 0;
-    };
-    return ((h_align << 28) | (v_align << 24) | (trimming << 20) | flags);
+function StringFormat () {
+  var h_align = 0,
+    v_align = 0,
+    trimming = 0,
+    flags = 0;
+  switch (arguments.length) {
+    case 4:
+      flags = arguments[3];
+    case 3:
+      trimming = arguments[2];
+    case 2:
+      v_align = arguments[1];
+    case 1:
+      h_align = arguments[0];
+      break;
+    default:
+      return 0;
+  }
+  return ((h_align << 28) | (v_align << 24) | (trimming << 20) | flags);
 }
-
 
 // color related
 
-function RGBA(r, g, b, a) {
-    return ((a << 24) | (r << 16) | (g << 8) | (b));
+function RGBA (r, g, b, a) {
+  return ((a << 24) | (r << 16) | (g << 8) | (b));
 }
 
-function RGB(r, g, b) {
-    return (0xff000000 | (r << 16) | (g << 8) | (b));
+function RGB (r, g, b) {
+  return (0xff000000 | (r << 16) | (g << 8) | (b));
 }
 
-function toRGB(d) {
-    var d = d - 0xff000000;
-    var r = d >> 16;
-    var g = d >> 8 & 0xFF;
-    var b = d & 0xFF;
-    return [r, g, b];
-};
-
-function blendColors(c1, c2, factor) {
-    var c1 = toRGB(c1);
-    var c2 = toRGB(c2);
-    var r = Math.round(c1[0] + factor * (c2[0] - c1[0]));
-    var g = Math.round(c1[1] + factor * (c2[1] - c1[1]));
-    var b = Math.round(c1[2] + factor * (c2[2] - c1[2]));
-    return (0xff000000 | (r << 16) | (g << 8) | (b));
-};
-
-
-function getAlpha(color) {
-    return ((color >> 24) & 0xff);
+function toRGB (d) {
+  var d = d - 0xff000000;
+  var r = d >> 16;
+  var g = d >> 8 & 0xFF;
+  var b = d & 0xFF;
+  return [r, g, b];
 }
 
-function getRed(color) {
-    return ((color >> 16) & 0xff);
+function blendColors (c1, c2, factor) {
+  var c1 = toRGB(c1);
+  var c2 = toRGB(c2);
+  var r = Math.round(c1[0] + factor * (c2[0] - c1[0]));
+  var g = Math.round(c1[1] + factor * (c2[1] - c1[1]));
+  var b = Math.round(c1[2] + factor * (c2[2] - c1[2]));
+  return (0xff000000 | (r << 16) | (g << 8) | (b));
 }
 
-function getGreen(color) {
-    return ((color >> 8) & 0xff);
+function getAlpha (color) {
+  return ((color >> 24) & 0xff);
 }
 
-function getBlue(color) {
-    return (color & 0xff);
+function getRed (color) {
+  return ((color >> 16) & 0xff);
 }
 
-function setAlpha(color, a) {
-    return ((color & 0x00ffffff) | (a << 24));
+function getGreen (color) {
+  return ((color >> 8) & 0xff);
 }
 
+function getBlue (color) {
+  return (color & 0xff);
+}
 
-function HEX(hex) {
-    hex = hex.replace(/#/g, "");
-    hex = parseInt(hex, 16);
-    return ((hex & 0xff0000) >> 16) | ((hex & 0x00ff00) >> 8) | (hex & 0x0000ff) | 0xff000000;
+function setAlpha (color, a) {
+  return ((color & 0x00ffffff) | (a << 24));
+}
+
+function HEX (hex) {
+  hex = hex.replace(/#/g, '');
+  hex = parseInt(hex, 16);
+  return ((hex & 0xff0000) >> 16) | ((hex & 0x00ff00) >> 8) | (hex & 0x0000ff) | 0xff000000;
 }
 
 // parse `r-g-b-a' format string to color value.
-function parseColor(col_str) {
-    var R, G, B;
-    var col = col_str.split("-");
+function parseColor (col_str) {
+  var R, G, B;
+  var col = col_str.split('-');
 
-    if (col.length < 3) return 0;
+  if (col.length < 3) return 0;
 
-    for (var i = 0; i < col.length; i++) {
-        col[i] = Number(col[i]);
+  for (var i = 0; i < col.length; i++) {
+    col[i] = Number(col[i]);
+  }
+
+  return RGBA(col[0], col[1], col[2], col[3] || 255);
+}
+
+function pos2vol (pos) {
+  return (50 * Math.log(0.99 * pos + 0.01) / Math.LN10);
+}
+
+function vol2pos (v) {
+  return ((Math.pow(10, v / 50) - 0.01) / 0.99);
+}
+
+function debounce (fn, delay) {
+  var timer = null,
+    delay = delay || 250;
+  return function () {
+    var context = this,
+      args = arguments;
+    timer && window.ClearTimeout(timer);
+    timer = window.SetTimeout(function () {
+      fn.apply(context, args);
+    }, delay);
+  };
+}
+
+function throttle (fn, threshhold, scope) {
+  threshhold || (threshhold = 250);
+  var last,
+    deferTimer;
+  return function () {
+    var context = scope || this;
+
+    var now = +new Date,
+      args = arguments;
+    if (last && now < last + threshhold) {
+      // hold on to it
+      window.clearTimeout(deferTimer);
+      deferTimer = window.setTimeout(function () {
+        last = now;
+        fn.apply(context, args);
+      }, threshhold);
+    } else {
+      last = now;
+      fn.apply(context, args);
     }
-
-    return RGBA(col[0], col[1], col[2], col[3] || 255);
+  };
 }
 
+function extend (subClass, superClass) {
+  var F = function () {};
+  F.prototype = superClass.prototype;
+  subClass.prototype = new F();
+  subClass.prototype.constructor = subClass;
 
-function pos2vol(pos) {
-	return (50 * Math.log(0.99 * pos + 0.01) / Math.LN10);
-};
-
-function vol2pos(v) {
-	return ((Math.pow(10, v / 50) - 0.01) / 0.99);
-};
-
-
-function debounce(fn, delay) {
-    var timer = null,
-        delay = delay || 250;
-    return function() {
-        var context = this,
-            args = arguments;
-        timer && window.ClearTimeout(timer);
-        timer = window.SetTimeout(function() {
-            fn.apply(context, args);
-        }, delay);
-    }
+  subClass.superclass = superClass.prototype;
+  if (superClass.prototype.constructor == Object.prototype.constructor) {
+    superClass.prototype.constructor = superClass;
+  }
 }
-            
-
-function throttle(fn, threshhold, scope) {
-    threshhold || (threshhold = 250);
-    var last,
-        deferTimer;
-    return function () {
-        var context = scope || this;
-
-        var now = +new Date,
-            args = arguments;
-        if (last && now < last + threshhold) {
-            // hold on to it
-            window.clearTimeout(deferTimer);
-            deferTimer = window.setTimeout(function () {
-                last = now;
-                fn.apply(context, args);
-            }, threshhold);
-        } else {
-            last = now;
-            fn.apply(context, args);
-        }
-    };
-}
-
-
-function extend(subClass, superClass) {
-    var F = function() {};
-    F.prototype = superClass.prototype;
-    subClass.prototype = new F();
-    subClass.prototype.constructor = subClass;
-
-    subClass.superclass = superClass.prototype;
-    if (superClass.prototype.constructor == Object.prototype.constructor) {
-        superClass.prototype.constructor = superClass;
-    }
-}
-
-
-
-
-
-
 
 // on load =====================================================
-
 
 // Init obj
 getButtons();
 getSeek();
 
-
 if (fb.IsPlaying) {
-    on_playback_new_track(fb.GetNowPlaying());
-    on_playback_time(fb.PlaybackTime);
+  on_playback_new_track(fb.GetNowPlaying());
+  on_playback_time(fb.PlaybackTime);
 }
 
 on_metadb_changed();
-on_playback_order_changed(fb.PlaybackOrder)
+on_playback_order_changed(fb.PlaybackOrder);
 window.MaxHeight = window.MinHeight = 75;
-
 
 // callback functions ===============================================
 
-function on_size() {
-    ww = window.Width;
-    wh = window.Height;
-    if (!ww || !wh) return;
+function on_size () {
+  ww = window.Width;
+  wh = window.Height;
+  if (!ww || !wh) return;
 
-    Wallpaper.onSize();
+  Wallpaper.onSize();
 
-    adjustButtonsLayout();
+  adjustButtonsLayout();
 
-    var npw = Math.min(240, (Buttons.prev.visible ? Buttons.prev.x : Buttons.playOrPause.x) - 10);
-    NowPlaying.size(0, 0, npw, wh);
+  var npw = Math.min(240, (Buttons.prev.visible ? Buttons.prev.x : Buttons.playOrPause.x) - 10);
+  NowPlaying.size(0, 0, npw, wh);
 
-    Seek.visible = (Buttons.prev.x - NowPlaying.x - NowPlaying.w > 200);
-    Seek.size(NowPlaying.x + NowPlaying.w + 20, (wh - 20) / 2 - 10, Buttons.prev.x - NowPlaying.x - NowPlaying.w - 50, 20);
+  Seek.visible = (Buttons.prev.x - NowPlaying.x - NowPlaying.w > 200);
+  Seek.size(NowPlaying.x + NowPlaying.w + 20, (wh - 20) / 2 - 10, Buttons.prev.x - NowPlaying.x - NowPlaying.w - 50, 20);
 
-    Volume.onSize();
+  Volume.onSize();
+}
+
+function on_paint (gr) {
+  Wallpaper.draw(gr);
+
+  Buttons.order.setImg(getOrderImg());
+  Buttons.playOrPause.setImg(getPlayImg());
+  for (var i in Buttons) {
+    'draw' in Buttons[i] && Buttons[i].draw(gr);
+  }
+
+  NowPlaying.draw(gr);
+
+  if (Seek.visible && fb.IsPlaying) {
+    Seek.draw(gr);
+    var time_w = gr.CalcTextWidth(Seek.playbackTime, Font.time);
+    var len_w = gr.CalcTextWidth(Seek.playbackLength, Font.time);
+    gr.GdiDrawText(Seek.playbackTime, Font.time, Color.fg, Seek.x, (wh - 20) / 2 + 10, time_w, 20, 0);
+    gr.GdiDrawText(Seek.playbackLength, Font.time, Color.fg, Seek.x + Seek.w - len_w, (wh - 20) / 2 + 10, len_w, 20, 0);
+  }
+
+  Volume.draw(gr);
+}
+
+function on_mouse_move (x, y) {
+  for (var i in Buttons) {
+    Buttons[i].move(x, y);
+  }
+
+  NowPlaying.move(x, y);
+
+  Seek.move(x, y);
+
+  Volume.move(x, y);
+}
+
+function on_mouse_lbtn_down (x, y, mask) {
+  if (Volume.visible && Volume.trace(x, y)) {
+    Volume.down(x, y);
+    return;
+  }
+
+  for (var i in Buttons) {
+    Buttons[i].down(x, y);
+  }
+
+  NowPlaying.down(x, y);
+
+  Seek.down(x, y);
+}
+
+function on_mouse_lbtn_up (x, y, mask) {
+  for (var i in Buttons) {
+    Buttons[i].up(x, y);
+  }
+
+  NowPlaying.up(x, y);
+
+  Seek.up(x, y);
+
+  Volume.up(x, y);
+
+  // Test ESLyric COM
+  // esl.RunPanelContextMenu("参数选项...")
 
 }
 
-function on_paint(gr) {
-
-    Wallpaper.draw(gr);
-
-    Buttons.order.setImg(getOrderImg());
-    Buttons.playOrPause.setImg(getPlayImg());
-    for (var i in Buttons) {
-        "draw" in Buttons[i] && Buttons[i].draw(gr);
-    }
-
-    NowPlaying.draw(gr);
-
-    if (Seek.visible && fb.IsPlaying) {
-        Seek.draw(gr);
-        var time_w = gr.CalcTextWidth(Seek.playbackTime, Font.time);
-        var len_w = gr.CalcTextWidth(Seek.playbackLength, Font.time);
-        gr.GdiDrawText(Seek.playbackTime, Font.time, Color.fg, Seek.x, (wh -20) / 2 + 10, time_w, 20, 0);
-        gr.GdiDrawText(Seek.playbackLength, Font.time, Color.fg, Seek.x + Seek.w - len_w, (wh - 20) / 2 + 10, len_w, 20, 0);
-    }
-
-    Volume.draw(gr);
-
-
+function on_mouse_rbtn_up (x, y, mask) {
+  return mask != MK_SHIFT;
 }
 
-function on_mouse_move(x, y) {
+function on_mouse_leave () {
+  for (var i in Buttons) {
+    Buttons[i].leave();
+  }
 
-    for (var i in Buttons) {
-        Buttons[i].move(x, y);
-    }
+  NowPlaying.leave();
 
-    NowPlaying.move(x, y);
-
-    Seek.move(x, y);
-
-    Volume.move(x, y);
-
+  Volume.leave();
 }
 
-function on_mouse_lbtn_down(x, y, mask) {
-
-    if (Volume.isMouseIn(x, y)) {
-        Volume.down(x, y);
-        return;
-    } 
-
-    for (var i in Buttons) {
-        Buttons[i].down(x, y);
-    }
-
-    NowPlaying.down(x, y);
-
-    Seek.down(x, y);
-
-    
+function on_volume_change (val) {
 }
 
-function on_mouse_lbtn_up(x, y, mask) {
+function on_metadb_changed (handlelist, fromhook) {
+  var metadb = fb.GetNowPlaying();
 
-    for (var i in Buttons) {
-        Buttons[i].up(x, y);
-    }
-
-    NowPlaying.up(x, y);
-
-    Seek.up(x, y);
-
-    Volume.up(x, y);
-
-    // Test ESLyric COM
-    //esl.RunPanelContextMenu("参数选项...");
-
+  NowPlaying.getAlbumArt(metadb);
 }
 
-function on_mouse_rbtn_up(x, y, mask) {
-
-    return mask != MK_SHIFT;
-
+function on_playback_new_track (metadb) {
+  Seek.playbackTime = '0:00';
+  Seek.playbackLength = tf_length.Eval();
+  on_metadb_changed();
+  repaintAll();
 }
 
-function on_mouse_leave() {
-    for (var i in Buttons) {
-        Buttons[i].leave();
-    }
-
-    NowPlaying.leave();
-
-    Volume.leave();
+function on_playback_seek (time) {
+  on_playback_time(time);
 }
 
-function on_volume_change(val) {
+function on_playback_time (time) {
+  Seek.playbackTime = utils.FormatDuration(time);
+  Seek.refresh();
+  Seek.visible && repaintAll();
 }
 
-
-function on_metadb_changed(handlelist, fromhook) {
-    var metadb = fb.GetNowPlaying();
-
-    NowPlaying.getAlbumArt(metadb);
-
-
+function on_playback_starting () {
+  Seek.refresh();
 }
 
-
-function on_playback_new_track(metadb) {
-    Seek.playbackTime = "0:00";
-    Seek.playbackLength = TF_LENGTH.Eval();
-    on_metadb_changed();
-    repaintAll();
+function on_playback_pause (state) {
+  repaintAll();
 }
 
-function on_playback_seek(time) {
-    on_playback_time(time);
+function on_playback_stop (reason) {
+  if (reason != 2) {
+  }
+  Seek.playbackTime = '';
+  Seek.playbackLength = '';
+  NowPlaying.albumold = '#@!';
+  on_metadb_changed();
+  Seek.refresh();
 }
 
-function on_playback_time(time) {
-    Seek.playbackTime = utils.FormatDuration(time);
-    Seek.refresh();
-    Seek.visible && repaintAll();
+function on_playback_order_changed (new_order) {
+  repaintAll();
 }
 
-function on_playback_starting() {
-    Seek.refresh();
+function on_volume_change (val) {
+  repaintAll();
 }
-
-function on_playback_pause(state) {
-    repaintAll();
-}
-
-function on_playback_stop(reason) {
-    if (reason != 2) {
-    }
-    Seek.playbackTime = "";
-    Seek.playbackLength = "";
-    NowPlaying.albumold = "#@!";
-    on_metadb_changed();
-    Seek.refresh();
-}
-
-function on_playback_order_changed(new_order) {
-    repaintAll();
-}
-        
-function on_volume_change(val) {
-    repaintAll();
-}
-
-
-// Test ESLyric COM
-
-/*
-ESL_UI_SYS = 0;
-ESL_UI_USER = 1;
-ESL_RENDER_GDI = 0;
-ESL_RENDER_GDI_PLUS = 1;
-ESL_BG_NO_IMG = 0;
-ESL_BG_ALBUM_ART = 1;
-ESL_BG_CUSTOM = 2;
-
-var esl = new ActiveXObject("ESLyric");
-
-esl.ShowDesktopLyric = false;
-esl.LockDesktopLyric = true;
-
-var guid = "C4080059-AF4E-4953-BACF-3F09EC74C671";
-
-esl.SetPanelUIMode(ESL_UI_USER, guid);
-esl.SetPanelTextRenderer(ESL_RENDER_GDI_PLUS, guid);
-
-var oldLyric  = null;
-esl.SetLyricCallback(function(lyric) {
-
-    fb.trace("\nCalled by WSH Panel Mod Plus\n");
-    //fb.trace(lyric.LyricText);
-
-});
-
-esl.SetPanelTextNormalColor(RGB(235, 235, 235), guid);
-esl.SetPanelTextBackgroundColor(RGB(120, 28, 64), guid);
-esl.SetPanelBackgroundType(ESL_BG_NO_IMG, guid);
-esl.SetPanelTextHighlightColor(RGB(0, 255, 36), guid);
-
-*/
