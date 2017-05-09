@@ -44,9 +44,7 @@ var MK_SHIFT = 4;
 
 var REFRESH_INTERVAL = 15;
 
-var Image, Images, Seek, Volume, Wallpaper,
-  AlbumArt;
-var Buttons;
+
 var ww = 0;
 var wh = 0;
 
@@ -85,11 +83,9 @@ function isNumeric (obj) {
   return !isArray(obj) && (obj - parseFloat(obj) + 1) >= 0;
 }
 
-/*
 function isFunction (obj) {
   return Object.prototype.toString.call(obj) === '[object Function]';
 }
-*/
 
 // Used in gdi.DrawString, set string alignment and etc.
 function StringFormat () {
@@ -384,7 +380,6 @@ var ButtonsHandler = function (btns) {
     this.btns.push(btns[key]);
   }
   this.length = this.btns.length;
-  // this.btns = btns
   this.hbtn = this.dbtn = null;
 };
 
@@ -703,76 +698,76 @@ function Slider (img, height, getpos, setpos) {
 
   this.pos = this.getpos();
   this.dragpos = 0;
-  this.size(0, 0, 0, 0);
 }
 
-Slider.prototype = {
-  trace: function (x, y) {
-    var l = (this.img ? this.img.Width / 2 : 0);
-    return (x > this.x - l && x < this.x + this.w + l && y > this.y && y < this.y + this.h);
-  },
-  repaint: function () {
-    var l = (this.img ? this.img.Width / 2 : 0);
-    window.RepaintRect(this.x - l, this.y, this.w + l * 2, this.h);
-  },
-  refresh: function () {
-    this.pos = this.getpos();
-    this.repaint();
-  },
-  draw: function (gr) {
-    if (!this.visible) return;
-    if (this.height > this.h) return;
-    if (this.w <= 0) return;
-    var yoff = Math.round((this.h - this.height) / 2),
-      img_w, img_h, img_x, img_y;
-    gr.FillSolidRect(this.x, this.y + yoff, this.w, this.height, setAlpha(Color.fg, 128));
-    if (this.pos > 0 || this.pos <= 1) {
-      gr.FillSolidRect(this.x, this.y + yoff, this.w * this.pos, this.height, Color.fg);
-    }
-    if (this.img && isNumeric(this.pos)) {
-      img_w = this.img.Width;
-      img_h = this.img.Height;
-      img_x = this.x + this.w * (this.drag ? this.dragpos : this.pos) - img_w / 2;
-      img_y = (this.h - img_h) / 2 + this.y;
-      gr.DrawImage(this.img, img_x, img_y, img_w, img_h, 0, 0, this.img.Width, this.img.Height, 0, 255);
-    }
+Slider.prototype.trace = function (x, y) {
+    var halfW = (this.img ? (this.img.Width / 2) | 0 + 1 : 0);
+    var isMouseOver = (x > this.x - halfW && x < this.x + this.w + halfW && y > this.y && y < this.y + this.h);
+    return this.visible && isMouseOver;
+}
 
-    debug && gr.DrawRect(this.x, this.y, this.w - 1, this.h - 1, 1, 0x20ffffff);
-  },
-  size: function (x, y, w, h) {
-    this.x = x;
-    this.y = y;
-    this.w = w;
-    this.h = h;
-    if (!this.visible) this.w = this.h = 0;
-  },
-  // Mouse events:
-  move: function (x, y) {
-    if (!this.visible) return;
-    if (this.drag) {
+Slider.prototype.repaint = repaintAll;
+
+Slider.prototype.draw = function (gr) {
+  if (!this.visible || this.height > this.h || this.w <= 0) return;
+
+  var offsetY = Math.round((this.h - this.height) / 2);
+  var img = this.img;
+  var imgX, imgY;
+
+  // Draw slider bg.
+  gr.FillSolidRect(this.x, this.y + offsetY, this.w, this.height, setAlpha(Color.fg, 128));
+  // Draw active slider bg.
+  if (this.pos > 0 || this.pos <= 1) {
+    gr.FillSolidRect(this.x, this.y + offsetY, this.w * this.pos, this.height, Color.fg);
+  }
+  // Draw nob image.
+  if (this.img && isNumeric(this.pos)) {
+    imgX = this.x + this.w * (this.drag ? this.dragpos : this.pos) - img.width / 2;
+    imgY = (this.h - img.height) / 2 + this.y;
+    gr.DrawImage(this.img, imgX, imgY, img.width, img.height, 0, 0, img.Width, img.Height, 0, 255);
+  }
+}
+
+Slider.prototype.refresh = function () {
+  this.pos = this.getpos();
+}
+
+Slider.prototype.setLayout = function (x, y, w, h) {
+  this.x = x;
+  this.y = y;
+  this.w = w;
+  this.h = h;
+  if (!this.visible) this.w = this.h = 0;
+}
+
+Slider.prototype.onMouseMove = function (x, y) {
+    // Drag nob.
+    if (this.visible && this.drag) {
       x -= this.x;
       this.dragpos = x < 0 ? 0 : x > this.w ? 1 : x / this.w;
       this.repaint();
-    // this.setpos(this.pos)
     }
-  },
-  down: function (x, y) {
+}
+
+Slider.prototype.onMouseDown = function (x, y) {
     if (this.trace(x, y)) {
       this.drag = true;
       this.move(x, y);
     }
-  },
-  up: function (x, y) {
+}
+
+Slider.prototype.onMouseUp = function (x, y) {
     if (this.drag) {
       this.pos = this.dragpos;
       this.setpos(this.dragpos);
       this.drag = false;
       this.repaint();
     }
-  }
-};
+}
 
 // progressbar
+// -------------
 
 function getSeek () {
   var onGet = function () {
@@ -984,7 +979,7 @@ Volume = {
     this.button.setXY(Math.round(this.x + 6), Math.round(this.y + 6));
     if (!this.slider) this.getSlider();
     this.slider.visible = this.visible;
-    this.slider.size(this.button.x + this.button.w + 10, this.y + (this.h - 20) / 2, this.w - this.button.w - 40, 20);
+    this.slider.setLayout(this.button.x + this.button.w + 10, this.y + (this.h - 20) / 2, this.w - this.button.w - 40, 20);
   },
 
   getSlider: function () {
@@ -1003,22 +998,22 @@ Volume = {
     if (!this.visible) return;
 
     this.trace(x, y) && this.show();
-    this.button.move(x, y);
-    this.slider.move(x, y);
+    // this.button.move(x, y);
+    // this.slider.move(x, y);
   },
   down: function (x, y) {
     if (!this.visible) return;
 
     this.trace(x, y) && this.show();
-    this.button.down(x, y);
-    this.slider.down(x, y);
+    // this.button.down(x, y);
+    // this.slider.down(x, y);
   },
   up: function (x, y) {
     if (!this.visible) return;
 
     this.trace(x, y) && this.show();
-    this.button.up(x, y);
-    this.slider.up(x, y);
+    // this.button.up(x, y);
+    // this.slider.up(x, y);
   },
   leave: function () {
     if (!this.visible) return;
@@ -1083,7 +1078,17 @@ Wallpaper = {
 
 };
 
+function lockPanelHeight (height) {
+  window.Maxheight = window.MinHeight = height;
+}
+
 // on load =====================================================
+
+var Image, Images, Seek, Volume, Wallpaper,
+  AlbumArt;
+var Buttons;
+
+lockPanelHeight(sizeOf(55));
 
 // Init obj
 getButtons();
@@ -1096,7 +1101,6 @@ if (fb.IsPlaying) {
 
 on_metadb_changed();
 on_playback_order_changed(fb.PlaybackOrder);
-window.MaxHeight = window.MinHeight = sizeOf(55);
 
 // callback functions ===============================================
 
@@ -1113,7 +1117,7 @@ function on_size () {
   NowPlaying.size(0, 0, npw, wh);
 
   Seek.visible = (Buttons.prev.x - NowPlaying.x - NowPlaying.w > 200);
-  Seek.size(NowPlaying.x + NowPlaying.w + 20, (wh - 20) / 2 - 10, Buttons.prev.x - NowPlaying.x - NowPlaying.w - 50, 20);
+  Seek.setLayout(NowPlaying.x + NowPlaying.w + 20, (wh - 20) / 2 - 10, Buttons.prev.x - NowPlaying.x - NowPlaying.w - 50, 20);
 
   Volume.onSize();
 }
@@ -1143,7 +1147,7 @@ function on_mouse_move (x, y) {
 
   NowPlaying.move(x, y);
 
-  Seek.move(x, y);
+  Seek.onMouseMove(x, y);
 
   Volume.move(x, y);
 }
@@ -1158,7 +1162,7 @@ function on_mouse_lbtn_down (x, y, mask) {
 
   NowPlaying.down(x, y);
 
-  Seek.down(x, y);
+  Seek.onMouseDown(x, y);
 }
 
 function on_mouse_lbtn_up (x, y, mask) {
@@ -1167,7 +1171,7 @@ function on_mouse_lbtn_up (x, y, mask) {
 
   NowPlaying.up(x, y);
 
-  Seek.up(x, y);
+  Seek.onMouseUp(x, y);
 
   Volume.up(x, y);
 
@@ -1216,6 +1220,7 @@ function on_playback_time (time) {
 
 function on_playback_starting () {
   Seek.refresh();
+  repaintAll();
 }
 
 function on_playback_pause (state) {
