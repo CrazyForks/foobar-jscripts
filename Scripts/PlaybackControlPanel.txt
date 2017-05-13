@@ -1,7 +1,6 @@
-﻿// vim: set ft=javascript fileencoding=utf-8 bomb et:
-
-/* global gdi utils fb ActiveXObject */
+﻿/* global gdi utils fb ActiveXObject */
 /* eslint-disable no-mixed-operators */
+/* eslint-disable one-var */
 
 // Required:
 // * foobar2000 v1.3.3+
@@ -19,17 +18,13 @@
 // TODO list:
 //
 // * Download albumArt from internet.
-// * Use dark text color if blurred bg image color is too bright.
+// * Lastfm scrobbler
 
 // Reserved
 
 var shuffleType = window.GetProperty('shuffleType', 4);
-var debug = window.GetProperty('debug mode', false);
+var REFRESH_INTERVAL = 15;
 
-// var SCRIPT_NAME = 'Playback Control Panel'
-// TFs
-// tf objects is recommended to be cached before use.
-var tf_length = fb.TitleFormat('[%length%]');
 // Image.resize
 var IMG_ADAPT = 0; // 适应
 var IMG_CROP = 1; // 修剪
@@ -37,13 +32,15 @@ var IMG_STRETCH = 2; // 拉伸
 var IMG_FILL = 3; // 填充
 // gr.gdiDrawText
 // => CALCRECT | END_ELLIPSIS | NO_PREFIX
-var DT_LT = 0x00000400 | 0x00008000 | 0x00000800;
+// var DT_LT = 0x00000400 | 0x00008000 | 0x00000800
+
+// tf objects is recommended to be cached before use.
+var TF_LENGTH = fb.TitleFormat('[%length%]');
+var TF_TITLE = fb.TitleFormat('%title%');
+var TF_ARTIST = fb.TitleFormat('[%artist% - ]');
 
 // mask key
 var MK_SHIFT = 4;
-
-var REFRESH_INTERVAL = 15;
-
 
 var ww = 0;
 var wh = 0;
@@ -66,12 +63,15 @@ var repaintAll = throttle(function () {
   window.Repaint();
 }, REFRESH_INTERVAL);
 
-var console = {
-  log: function (str) {
+var console = (function () {
+  var debug = window.GetProperty('debug mode', false);
+  var log = function (str) {
     debug && fb.trace(str);
-  }
-};
-
+  };
+  return {
+    log: log
+  };
+})();
 
 // Refer: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/isArray
 function isArray (arg) {
@@ -126,8 +126,8 @@ function vol2pos (v) {
 }
 
 function debounce (fn, delay) {
-  var timer = null,
-    delay = delay || 250;
+  var timer = null;
+  delay = delay || 250;
   return function () {
     var context = this,
       args = arguments;
@@ -168,7 +168,7 @@ function inherit (subClass, superClass) {
   subClass.prototype.constructor = subClass;
 
   subClass.superclass = superClass.prototype;
-  if (superClass.prototype.constructor == Object.prototype.constructor) {
+  if (superClass.prototype.constructor === Object.prototype.constructor) {
     superClass.prototype.constructor = superClass;
   }
 }
@@ -210,7 +210,10 @@ function getFonts () {
   }
 
   font.time = font.small = font.title = gdi.Font(font.Name, sizeOf(12));
-  font.Name = font.title.Name;
+  if (font.Name !== font.title.Name) {
+    fb.trace('Warning: failed to load font `' + fontName + "'");
+    font.Name = font.title.Name;
+  }
   font.AssetsName = fontAssets;
 
   return font;
@@ -264,8 +267,8 @@ function getImages (_font, _color) {
     'volume3': '\ue995'
   };
   btnW = sizeOf(60 - 12);
-  for (var i in icons2) {
-    images[i] = getImg(icons2[i], fontAssets, Color.fg, btnW, btnW);
+  for (var j in icons2) {
+    images[j] = getImg(icons2[j], fontAssets, Color.fg, btnW, btnW);
   }
 
   // Nocover image
@@ -285,8 +288,8 @@ function getImages (_font, _color) {
   images.nob = gdi.CreateImage(nobW, nobW);
   g = images.nob.GetGraphics();
   g.SetSmoothingMode(2);
-  g.FillEllipse(sizeOf(3), sizeOf(3), nobW - sizeOf(6), nobW - sizeOf(6), Color.bg);
-  g.DrawEllipse(sizeOf(2), sizeOf(2), nobW - sizeOf(4), nobW - sizeOf(4), sizeOf(2), Color.fg);
+  g.FillEllipse(sizeOf(2), sizeOf(2), nobW - sizeOf(4), nobW - sizeOf(4), Color.bg);
+  g.DrawEllipse(sizeOf(2), sizeOf(2), nobW - sizeOf(4), nobW - sizeOf(4), sizeOf(1), Color.fg);
   g.SetSmoothingMode(0);
   images.nob.ReleaseGraphics(g);
 
@@ -305,18 +308,20 @@ function Button (img, func) {
   this.func = func;
   this.state = 0;
   this.visible = true;
-  this.setXY(0, 0);
+  this.enabled = false;
 }
 
 Button.prototype = {
   trace: function (x, y) {
-    return x > this.x && x < this.x + this.w && y > this.y && y < this.y + this.h;
+    var isMouseOver = x > this.x && x < this.x + this.w && y > this.y && y < this.y + this.h;
+    return this.enabled && this.visible && isMouseOver;
   },
   repaint: repaintAll,
 
   setXY: function (x, y) {
     this.x = x;
     this.y = y;
+    this.enabled = true;
   },
   setImage: function (img) {
     this.img = img;
@@ -332,48 +337,17 @@ Button.prototype = {
     this.state = state;
     this.repaint();
   },
-  // Mouse events:
-  down: function (x, y) {
-    this.trace(x, y) ? this.setState(2) : null;
-    return this.state === 2;
-  },
-  up: function (x, y) {
-    if (!this.visible) return;
-    var stateOld = this.state;
-    this.trace(x, y) ? this.setState(1) : this.setState(0);
-    if (stateOld == 2 && this.state == 1) {
-      this.func && this.func(x, y);
-      return true;
-    }
-    return false;
-  },
-  move: function (x, y) {
-    if (this.state !== 2) {
-      this.trace(x, y) ? this.setState(1) : this.setState(0);
-    }
-  },
-  leave: function () {
-    this.setState(0);
-  // TODO:  Keep btn pressed down when menu pop up
-  },
-  // xx, yy: offset from this.x, this.y
-  draw: function (gr, xx, yy) {
-    if (!this.visible) return;
+
+  draw: function (gr) {
+    if (!this.visible || !this.enabled) return;
     var x = this.x;
     var y = this.y;
-    if (arguments.length === 3) {
-      x += xx;
-      y += yy;
-    }
-    var alpha = (this.state == 2 ? 128 : this.state == 1 ? 200 : 255);
+    var alpha = (this.state === 2 ? 128 : this.state === 1 ? 200 : 255);
     var img = this.img;
     gr.DrawImage(img, x, y, img.Width, img.Height, 0, 0, img.Width, img.Height, 0, alpha);
-
-    debug && gr.DrawRect(x, y, this.w - 1, this.h - 1, 1, 0x20ffffff);
   }
-
 };
-var BHandler;
+
 var ButtonsHandler = function (btns) {
   this.btns = [];
   for (var key in btns) {
@@ -381,6 +355,11 @@ var ButtonsHandler = function (btns) {
   }
   this.length = this.btns.length;
   this.hbtn = this.dbtn = null;
+};
+
+ButtonsHandler.prototype.addButton = function (btn) {
+  for (var i = 0, len = this.btns.length; i < len; i++) {
+  }
 };
 
 ButtonsHandler.prototype.onMouseMove = function (x, y) {
@@ -392,8 +371,7 @@ ButtonsHandler.prototype.onMouseMove = function (x, y) {
     return;
   }
 
-  var btn = null;
-  var len, i;
+  var btn, len, i;
 
   for (i = 0, len = this.btns.length; i < len; i++) {
     if (this.btns[i].trace(x, y)) {
@@ -455,18 +433,15 @@ function getPlaybackOrderImage (order) {
 }
 
 function getPlayOrPauseImage () {
-  var img;
   if (!fb.IsPlaying || (fb.IsPlaying && fb.IsPaused)) {
-    img = Images.play;
+    return Images.play;
   } else {
-    img = Images.pause;
+    return Images.pause;
   }
-  return img;
 }
 
 function getButtons () {
-  var w = sizeOf(40);
-  Buttons = {};
+  var Buttons = {};
 
   // get buttons
   Buttons.prev = new Button(Images.prev, onPrev);
@@ -474,10 +449,6 @@ function getButtons () {
   Buttons.playOrPause = new Button(getPlayOrPauseImage(), onPlayOrPause);
   Buttons.order = new Button(getPlaybackOrderImage(), onPlaybackOrder);
   Buttons.volume = new Button(Images.volume, onVolume);
-
-  // Handler
-  BHandler = new ButtonsHandler(Buttons); 
-  
 
   function onPrev () {
     fb.Prev();
@@ -492,7 +463,6 @@ function getButtons () {
   }
 
   function onVolume () {
-    !Volume.visible ? Volume.show() : Volume.hide(true);
   }
 
   function onPlaybackOrder () {
@@ -504,36 +474,12 @@ function getButtons () {
       fb.PlaybackOrder = 0;
     }
   }
+
+  return Buttons;
 }
 
-function adjustButtonsLayout () {
-  var pad = 10,
-    bw = Buttons.prev.w,
-    bx, by;
-
-  bx = ww - bw - pad;
-  by = Math.round((wh - bw) / 2);
-
-  Buttons.volume.visible = (ww > 460);
-  Buttons.order.visible = (ww > 460 - 50);
-  Buttons.prev.visible = (ww > 460 - 100);
-
-  Buttons.volume.setXY(bx, by);
-  //
-  Buttons.volume.visible && (bx -= pad + bw);
-  Buttons.order.setXY(bx, by);
-  //
-  Buttons.order.visible && (bx -= pad + bw);
-  Buttons.next.setXY(bx, by);
-  //
-  bx -= pad + bw;
-  Buttons.playOrPause.setXY(bx, by);
-  //
-  bx -= pad + bw;
-  Buttons.prev.setXY(bx, by);
-}
-
-getButtons();
+var Buttons = getButtons();
+var BHandler = new ButtonsHandler(Buttons);
 
 // AlbumArt obj ===================================================
 
@@ -545,7 +491,7 @@ var AlbumArtId = {
   artist: 4
 };
 
-AlbumArt = {
+var AlbumArt = {
   timer: null,
 
   // Callback function recieve 3 params: metadb, art_id, image
@@ -560,11 +506,11 @@ AlbumArt = {
     }
     var img;
     window.SetTimeout(function () {
-      if (embedded && metadb.Path.indexOf('://') == -1) {
+      if (embedded && metadb.Path.indexOf('://') === -1) {
         img = utils.GetAlbumArtEmbedded(metadb.RawPath, artID);
         if (!img && force) {
           for (var i in AlbumArtId) {
-            if (AlbumArtId[i] == AlbumArtId.icon) continue; // do not load icon images
+            if (AlbumArtId[i] === AlbumArtId.icon) continue; // do not load icon images
             img = utils.GetAlbumArtV2(metadb, AlbumArtId[i], false);
             if (img) break;
           }
@@ -574,9 +520,9 @@ AlbumArt = {
         // if force == true, try to search all type of album art before
         // got one.
         if (force && !img) {
-          for (var i in AlbumArtId) {
-            if (AlbumArtId[i] == artID) continue;
-            if (AlbumArtId[i] == AlbumArtId.icon) continue; // do not load icon images
+          for (i in AlbumArtId) {
+            if (AlbumArtId[i] === artID) continue;
+            if (AlbumArtId[i] === AlbumArtId.icon) continue; // do not load icon images
             img = utils.GetAlbumArtV2(metadb, AlbumArtId[i], false);
             if (img) break;
           }
@@ -593,7 +539,7 @@ AlbumArt = {
 
 // Image module to process images =============================================
 
-Image = {
+var Image = {
   loadAsync: function () {},
 
   clone: function (img) {
@@ -604,10 +550,10 @@ Image = {
   resize: function (img, w, h, aspect, interpolation) {
     if (!img) return null;
 
-    var _w, _h;
+    var _w, _h, img_, scale;
     switch (aspect) {
       case IMG_ADAPT:
-        var scale = 0;
+        scale = 0;
         if (Math.max(img.Width, img.Height) < Math.min(w, h)) {
           scale = 1;
         } else {
@@ -618,18 +564,18 @@ Image = {
         break;
 
       case IMG_CROP:
-        var scale = Math.max(w / img.Width, h / img.Height);
+        scale = Math.max(w / img.Width, h / img.Height);
         _w = Math.ceil(scale * img.Width);
         _h = Math.ceil(scale * img.Height);
 
         if (_w > w) {
-          var img_ = img.Resize(_w, _h, interpolation);
+          img_ = img.Resize(_w, _h, interpolation);
           var _x = Math.floor((_w - w) / 2);
           _w = w;
           img = img_.Clone(_x, 0, _w, _h);
         }
         if (_h > h) {
-          var img_ = img.Resize(_w, _h, interpolation);
+          img_ = img.Resize(_w, _h, interpolation);
           var _y = Math.floor((_h - h) / 2);
           _h = h;
           img = img_.Clone(0, _y, _w, _h);
@@ -642,7 +588,7 @@ Image = {
         break;
 
       case IMG_FILL:
-        var scale = Math.max(w / img.Width, h / img.Height);
+        scale = Math.max(w / img.Width, h / img.Height);
 
         _w = Math.ceil(scale * img.Width);
         _h = Math.ceil(scale * img.Height);
@@ -701,10 +647,10 @@ function Slider (img, height, getpos, setpos) {
 }
 
 Slider.prototype.trace = function (x, y) {
-    var halfW = (this.img ? (this.img.Width / 2) | 0 + 1 : 0);
-    var isMouseOver = (x > this.x - halfW && x < this.x + this.w + halfW && y > this.y && y < this.y + this.h);
-    return this.visible && isMouseOver;
-}
+  var halfW = (this.img ? (this.img.Width / 2) | 0 + 1 : 0);
+  var isMouseOver = (x > this.x - halfW && x < this.x + this.w + halfW && y > this.y && y < this.y + this.h);
+  return this.visible && isMouseOver;
+};
 
 Slider.prototype.repaint = repaintAll;
 
@@ -727,11 +673,11 @@ Slider.prototype.draw = function (gr) {
     imgY = (this.h - img.height) / 2 + this.y;
     gr.DrawImage(this.img, imgX, imgY, img.width, img.height, 0, 0, img.Width, img.Height, 0, 255);
   }
-}
+};
 
-Slider.prototype.refresh = function () {
+Slider.prototype.updateProgress = function () {
   this.pos = this.getpos();
-}
+};
 
 Slider.prototype.setLayout = function (x, y, w, h) {
   this.x = x;
@@ -739,38 +685,38 @@ Slider.prototype.setLayout = function (x, y, w, h) {
   this.w = w;
   this.h = h;
   if (!this.visible) this.w = this.h = 0;
-}
+};
 
 Slider.prototype.onMouseMove = function (x, y) {
-    // Drag nob.
-    if (this.visible && this.drag) {
-      x -= this.x;
-      this.dragpos = x < 0 ? 0 : x > this.w ? 1 : x / this.w;
-      this.repaint();
-    }
-}
+  // Drag nob.
+  if (this.visible && this.drag) {
+    x -= this.x;
+    this.dragpos = x < 0 ? 0 : x > this.w ? 1 : x / this.w;
+    this.repaint();
+  }
+};
 
 Slider.prototype.onMouseDown = function (x, y) {
-    if (this.trace(x, y)) {
-      this.drag = true;
-      this.move(x, y);
-    }
-}
+  if (this.trace(x, y)) {
+    this.drag = true;
+    this.onMouseMove(x, y);
+  }
+};
 
 Slider.prototype.onMouseUp = function (x, y) {
-    if (this.drag) {
-      this.pos = this.dragpos;
-      this.setpos(this.dragpos);
-      this.drag = false;
-      this.repaint();
-    }
-}
+  if (this.drag) {
+    this.pos = this.dragpos;
+    this.setpos(this.dragpos);
+    this.drag = false;
+    this.repaint();
+  }
+};
 
 // progressbar
 // -------------
 
 function getSeek () {
-  var onGet = function () {
+  var onGetProgress = function () {
     try {
       return fb.PlaybackTime / fb.PlaybackLength;
     } catch (e) {
@@ -778,18 +724,18 @@ function getSeek () {
     }
   };
 
-  var onSet = function (pos) {
+  var onSetProgress = function (pos) {
     try {
       fb.PlaybackTime = fb.PlaybackLength * pos;
     } catch (e) {}
   };
 
-  Seek = new Slider(Images.nob, 2, onGet, onSet);
+  return new Slider(Images.nob, sizeOf(2), onGetProgress, onSetProgress);
 }
 
 // Nowplaying info button ======================================================
 
-function NowPlaying () {
+function CoverDisplay () {
   this.state = 0;
   this.func = null; // onClick function
   this.img = null; // displayed image of album art.
@@ -803,20 +749,21 @@ function NowPlaying () {
   this.TF_ART = fb.TitleFormat('$if2([%artist%],' + 'Unknown Artist' + ')');
   this.TF_ART_ALB = fb.TitleFormat('%album artist%^^%album%');
 }
-inherit(NowPlaying, Button);
-NowPlaying = new NowPlaying();
+
+inherit(CoverDisplay, Button);
+
+var CoverViewer = new CoverDisplay();
 
 // Set NowPlaying on-click function
-NowPlaying.func = function () {
+CoverViewer.func = function () {
   if (!fb.IsPlaying) return;
 
   fb.ActivePlaylist = fb.PlayingPlaylist;
-  fb.RunMainMenuCommand('视图/显示列表正在播放项目');
-  console.log('Track clicked');
+  fb.RunMainMenuCommand('View/Show now playing in playlist');
 };
 
-NowPlaying.getAlbumArt = function (metadb) {
-  var alb_str;
+CoverViewer.getAlbumArt = function (metadb) {
+  var albString;
   var self = this;
 
   // callback
@@ -828,7 +775,7 @@ NowPlaying.getAlbumArt = function (metadb) {
       self.img = Image.resize(self.imgcache, self.h - 10, self.h - 10, IMG_CROP, 7);
     }
     // Gen nocover image, should be exec only once.
-    if (!self.nocover || self.nocover.Width != self.h - 10) {
+    if (!self.nocover || self.nocover.Width !== self.h - 10) {
       self.nocover = Images.nocover.Resize(self.h - 10, self.h - 10, 7);
     }
     self.repaint();
@@ -837,26 +784,24 @@ NowPlaying.getAlbumArt = function (metadb) {
 
   // get on album switch
   if (metadb) {
-    alb_str = this.TF_ART_ALB.EvalWithMetadb(metadb);
-    if (alb_str != this.albumold) {
+    albString = this.TF_ART_ALB.EvalWithMetadb(metadb);
+    if (albString !== this.albumold) {
       this.img = null;
       this.imgcache = null;
       AlbumArt.getAsync(metadb, AlbumArtId.front, this.onGetAlbumArt, { force: true });
-      this.albumold = alb_str;
+      this.albumold = albString;
     }
   } else {
     this.imgcache = null;
     this.img = null;
   }
 
-  CollectGarbage();
+  // TODO: Release image resources by hands instead of CollectGarbadge()
+
   this.repaint();
 };
 
-NowPlaying.draw = function (gr) {
-  if (!fb.IsPlaying) return;
-  if (this.h < wh) return;
-
+CoverViewer.draw = function (gr) {
   // album art image
   if (this.img) {
     gr.DrawImage(this.img, this.x + 5, this.y + 5, this.h - 10, this.h - 10, 0, 0, this.img.Width, this.img.Height, 0, 225);
@@ -864,168 +809,24 @@ NowPlaying.draw = function (gr) {
     this.nocover && gr.DrawImage(this.nocover, this.x + 5, this.y + 5, this.h - 10, this.h - 10, 0, 0, this.nocover.Width, this.nocover.Height, 0, 255);
   }
 
-  // track info
-  if (this.w > this.h + 50) {
-    var infoX = this.x + this.h + 5;
-    var infoY = this.y + this.h / 2 - Font.title.Height - 5;
-    gr.GdiDrawText(this.TF_TITLE.Eval(), Font.title, Color.fg, infoX, infoY, this.x + this.w - infoX - 5, 30, DT_LT);
-    infoY += Math.round(Font.title.Height * 1.25);
-    gr.GdiDrawText(this.TF_ART.Eval(), Font.title, Color.fg, infoX, infoY, this.x + this.w - infoX - 5, 30, DT_LT);
-  }
-
   // hover color
-  var overlay = this.state == 1 ? setAlpha(0xffffffff, 10) : setAlpha(0xffffffff, 20);
+  var overlay = this.state === 1 ? setAlpha(0xffffffff, 10) : setAlpha(0xffffffff, 20);
   this.state && gr.FillSolidRect(this.x, this.y, this.w, this.h, overlay);
-
-  debug && gr.DrawRect(this.x, this.y, this.w - 1, this.h - 1, 1, 0x20ffffff);
 };
 
-NowPlaying.size = function (x, y, w, h) {
+CoverViewer.size = function (x, y, w, h) {
   this.x = x;
   this.y = y;
   this.w = w;
-  if (this.w <= h + 50) this.w = Math.min(w, h);
-  this.h = Math.min(w, h);
+  this.h = h;
   this.onSize && this.onSize();
 };
 
-NowPlaying.onSize = function () {};
-
-// Volume ================================================
-
-Volume = {
-  w: 260,
-  h: 60,
-  visible: false,
-  getVolImg: function () {
-    var val = vol2pos(fb.Volume);
-    var imgs = [Images.volume0, Images.volume1, Images.volume2, Images.volume3, Images.volume3];
-
-    return imgs[Math.ceil(val / 0.3)];
-  },
-
-  getButton: function () {
-    this.button = new Button(Volume.getVolImg(), Images.volume0.Width, Images.volume0.Height, function () { fb.VolumeMute(); });
-  },
-
-  setXY: function (x, y) {
-    this.x = x;
-    this.y = y;
-  },
-
-  trace: function (x, y) {
-    return (x > this.x && x < this.x + this.w && y > this.y && y < this.y + this.h);
-  },
-
-  getImg: function () {
-    var img, g;
-
-    img = gdi.CreateImage(this.w, this.h);
-    g = img.GetGraphics();
-    g.FillSolidRect(0, 0, this.w - 1, this.h - 1, rgb(64, 64, 64));
-    g.DrawRect(0, 0, this.w - 1, this.h - 1, 1, rgb(32, 32, 32));
-    img.ReleaseGraphics(g);
-    this.img = Image.applyShadow(img, this.w - 12, this.h - 12, 7, 6);
-    img.Dispose();
-  },
-
-  hide: function (force) {
-    var self = Volume;
-
-    if (force) {
-      self.visible = false;
-      repaintAll();
-      return;
-    }
-
-    this.timerId = window.setTimeout(function () {
-      self.visible = false;
-      repaintAll();
-      self.timerId && window.ClearTimeout(self.timerId);
-      self.timerId = null;
-    }, 3000);
-  },
-
-  show: function () {
-    if (this.visible) {
-      this.timerId && window.ClearTimeout(this.timerId);
-      this.timerId = null;
-    }
-
-    this.visible = true;
-    if (!Image.isValid(this.img)) {
-      this.getImg();
-    }
-
-    this.onSize();
-    repaintAll();
-    this.hide();
-  },
-
-  draw: function (gr) {
-    if (!this.visible) return;
-
-    gr.DrawImage(this.img, this.x, this.y, this.w, this.h, 0, 0, this.img.Width, this.img.Height, 0, 255);
-    this.button.setImage(this.getVolImg());
-    this.button.draw(gr);
-    // draw slider
-    this.slider.draw(gr);
-  },
-
-  onSize: function () {
-    this.setXY((ww - this.w) / 2, (wh - this.h) / 2);
-    // draw button
-    if (!this.button) this.getButton();
-    this.button.setXY(Math.round(this.x + 6), Math.round(this.y + 6));
-    if (!this.slider) this.getSlider();
-    this.slider.visible = this.visible;
-    this.slider.setLayout(this.button.x + this.button.w + 10, this.y + (this.h - 20) / 2, this.w - this.button.w - 40, 20);
-  },
-
-  getSlider: function () {
-    function getpos () {
-      return vol2pos(fb.Volume);
-    }
-
-    function setpos (pos) {
-      fb.Volume = pos2vol(pos);
-    }
-
-    this.slider = new Slider(Images.nob, 2, getpos, setpos);
-  },
-
-  move: function (x, y) {
-    if (!this.visible) return;
-
-    this.trace(x, y) && this.show();
-    // this.button.move(x, y);
-    // this.slider.move(x, y);
-  },
-  down: function (x, y) {
-    if (!this.visible) return;
-
-    this.trace(x, y) && this.show();
-    // this.button.down(x, y);
-    // this.slider.down(x, y);
-  },
-  up: function (x, y) {
-    if (!this.visible) return;
-
-    this.trace(x, y) && this.show();
-    // this.button.up(x, y);
-    // this.slider.up(x, y);
-  },
-  leave: function () {
-    if (!this.visible) return;
-
-    this.button.leave();
-  }
-
-};
+CoverViewer.onSize = function () {};
 
 // Wallpaper ============================================================
 
-Wallpaper = {
+var Wallpaper = {
   src: null,
   cache: null,
   timer: null,
@@ -1058,8 +859,8 @@ Wallpaper = {
   update: function () {
     if (!this.show) return;
     this.cache = this.src;
-    this.src = NowPlaying.imgcache ? this.getImg(NowPlaying.imgcache) : null;
-    var alpha = 0;
+    this.src = CoverViewer.imgcache ? this.getImg(CoverViewer.imgcache) : null;
+    // var alpha = 0
     repaintAll();
   },
 
@@ -1084,22 +885,48 @@ function lockPanelHeight (height) {
 
 // on load =====================================================
 
-var Image, Images, Seek, Volume, Wallpaper,
-  AlbumArt;
-var Buttons;
-
-lockPanelHeight(sizeOf(55));
+lockPanelHeight(sizeOf(60));
 
 // Init obj
-getButtons();
-getSeek();
+var SeekBar = getSeek();
+
+SeekBar.updateTime = function () {
+  if (fb.IsPlaying) {
+    this.playbackTime = utils.FormatDuration(fb.PlaybackTime);
+  } else {
+    this.playbackTime = '';
+  }
+};
+
+SeekBar.updateTitle = function () {
+  if (fb.IsPlaying) {
+    this.playbackLength = TF_LENGTH.Eval();
+    this.title = TF_TITLE.Eval();
+    this.artist = TF_ARTIST.Eval();
+  } else {
+    this.playbackLength = '';
+    this.title = '';
+    this.artist = '';
+  }
+};
+
+var VolumeBar = (function () {
+  function getVolume () {
+    return vol2pos(fb.Volume);
+  }
+
+  function setVolume (pos) {
+    fb.Volume = pos2vol(pos);
+  }
+  return new Slider(Images.nob, sizeOf(2), getVolume, setVolume);
+})();
 
 if (fb.IsPlaying) {
   on_playback_new_track(fb.GetNowPlaying());
   on_playback_time(fb.PlaybackTime);
 }
 
-on_metadb_changed();
+on_playback_edited();
 on_playback_order_changed(fb.PlaybackOrder);
 
 // callback functions ===============================================
@@ -1111,100 +938,101 @@ function on_size () {
 
   Wallpaper.onSize();
 
-  adjustButtonsLayout();
+  var padSmall = sizeOf(10);
+  var padLarge = sizeOf(20);
+  var btnsW = Buttons.prev.w;
+  var btnsY = Math.round((wh - btnsW) / 2);
 
-  var npw = Math.min(240, (Buttons.prev.visible ? Buttons.prev.x : Buttons.playOrPause.x) - 10);
-  NowPlaying.size(0, 0, npw, wh);
+  // Buttons Layout.
+  Buttons.prev.setXY(padLarge + padSmall, btnsY);
+  Buttons.playOrPause.setXY(padSmall + padLarge * 2 + btnsW, btnsY);
+  Buttons.next.setXY(padSmall + padLarge * 3 + btnsW * 2, btnsY);
 
-  Seek.visible = (Buttons.prev.x - NowPlaying.x - NowPlaying.w > 200);
-  Seek.setLayout(NowPlaying.x + NowPlaying.w + 20, (wh - 20) / 2 - 10, Buttons.prev.x - NowPlaying.x - NowPlaying.w - 50, 20);
+  Buttons.order.setXY(ww - btnsW - padSmall, btnsY);
+  Buttons.volume.setXY(ww - btnsW * 2 - padSmall - padLarge - sizeOf(100), btnsY);
 
-  Volume.onSize();
+  // Cover
+  var padCover = sizeOf(10);
+  CoverViewer.size(Buttons.next.x + Buttons.next.w + padLarge + padSmall, padCover, wh - padCover * 2, wh - padCover * 2);
+
+  // Seekbar
+  var seekX = CoverViewer.x + CoverViewer.w + padSmall;
+  var seekW = Buttons.volume.x - padLarge - padSmall - seekX;
+  SeekBar.visible = true;
+  SeekBar.setLayout(seekX, (wh - sizeOf(20)) / 2 + sizeOf(10), seekW, sizeOf(20));
+
+  // Volumebar
+  VolumeBar.setLayout(Buttons.volume.x + btnsW + padSmall, Math.round((wh - sizeOf(20)) / 2), sizeOf(100), sizeOf(20));
 }
 
 function on_paint (gr) {
+  // Background
   Wallpaper.draw(gr);
 
-  Buttons.order.setImage(getPlaybackOrderImage());
-  Buttons.playOrPause.setImage(getPlayOrPauseImage());
+  // Buttons
   BHandler.draw(gr);
 
-  NowPlaying.draw(gr);
+  // Cover viewer
+  CoverViewer.draw(gr);
 
-  if (Seek.visible && fb.IsPlaying) {
-    Seek.draw(gr);
-    var time_w = gr.CalcTextWidth(Seek.playbackTime, Font.time);
-    var len_w = gr.CalcTextWidth(Seek.playbackLength, Font.time);
-    gr.GdiDrawText(Seek.playbackTime, Font.time, Color.fg, Seek.x, (wh - 20) / 2 + 10, time_w, 20, 0);
-    gr.GdiDrawText(Seek.playbackLength, Font.time, Color.fg, Seek.x + Seek.w - len_w, (wh - 20) / 2 + 10, len_w, 20, 0);
+  // Seekbar
+  if (SeekBar.visible) {
+    SeekBar.draw(gr);
+
+    var title = SeekBar.artist + SeekBar.title;
+    var time = SeekBar.playbackTime + ' / ' + SeekBar.playbackLength;
+    var padSmall = sizeOf(10);
+
+    var timeW, titleW;
+
+    if (fb.IsPlaying) {
+      timeW = gr.CalcTextWidth(time, Font.time);
+      gr.GdiDrawText(time, Font.time, Color.fg, SeekBar.x + SeekBar.w - timeW, (wh - 30) / 2 - 10, timeW, 20, 0);
+
+      titleW = Math.min(gr.CalcTextWidth(title, Font.title), SeekBar.w - timeW - padSmall);
+      gr.GdiDrawText(title, Font.title, Color.fg, SeekBar.x, (wh - 30) / 2 - 10, titleW, 30, 0);
+    }
   }
 
-  Volume.draw(gr);
+  // Volumebar
+  VolumeBar.draw(gr);
 }
 
 function on_mouse_move (x, y) {
   BHandler.onMouseMove(x, y);
-
-  NowPlaying.move(x, y);
-
-  Seek.onMouseMove(x, y);
-
-  Volume.move(x, y);
+  SeekBar.onMouseMove(x, y);
+  VolumeBar.onMouseMove(x, y);
 }
 
 function on_mouse_lbtn_down (x, y, mask) {
-  if (Volume.visible && Volume.trace(x, y)) {
-    Volume.down(x, y);
-    return;
-  }
-  
   BHandler.onMouseDown(x, y);
-
-  NowPlaying.down(x, y);
-
-  Seek.onMouseDown(x, y);
+  SeekBar.onMouseDown(x, y);
+  VolumeBar.onMouseDown(x, y);
 }
 
 function on_mouse_lbtn_up (x, y, mask) {
-
   BHandler.onMouseUp(x, y);
-
-  NowPlaying.up(x, y);
-
-  Seek.onMouseUp(x, y);
-
-  Volume.up(x, y);
-
-  // Test ESLyric COM
-  // esl.RunPanelContextMenu("参数选项...")
+  SeekBar.onMouseUp(x, y);
+  VolumeBar.onMouseUp(x, y);
 }
 
 function on_mouse_rbtn_up (x, y, mask) {
-  return mask != MK_SHIFT;
+  return mask !== MK_SHIFT;
 }
 
 function on_mouse_leave () {
-
   BHandler.onMouseLeave();
-
-  NowPlaying.leave();
-
-  Volume.leave();
 }
 
-function on_volume_change (val) {
-}
-
-function on_metadb_changed (handlelist, fromhook) {
-  var metadb = fb.GetNowPlaying();
-
-  NowPlaying.getAlbumArt(metadb);
+function on_playback_edited (handlelist, fromhook) {
+  CoverViewer.getAlbumArt(fb.GetNowPlaying());
 }
 
 function on_playback_new_track (metadb) {
-  Seek.playbackTime = '0:00';
-  Seek.playbackLength = tf_length.Eval();
-  on_metadb_changed();
+  Buttons.playOrPause.setImage(getPlayOrPauseImage());
+  SeekBar.updateTime();
+  SeekBar.updateTitle();
+  CoverViewer.getAlbumArt(fb.GetNowPlaying());
   repaintAll();
 }
 
@@ -1213,34 +1041,39 @@ function on_playback_seek (time) {
 }
 
 function on_playback_time (time) {
-  Seek.playbackTime = utils.FormatDuration(time);
-  Seek.refresh();
-  Seek.visible && repaintAll();
+  SeekBar.updateTime();
+  SeekBar.updateProgress();
+  SeekBar.visible && repaintAll();
 }
 
 function on_playback_starting () {
-  Seek.refresh();
+  Buttons.playOrPause.setImage(getPlayOrPauseImage());
+  SeekBar.updateProgress();
   repaintAll();
 }
 
 function on_playback_pause (state) {
+  Buttons.playOrPause.setImage(getPlayOrPauseImage());
   repaintAll();
 }
 
 function on_playback_stop (reason) {
-  if (reason != 2) {
+  if (reason !== 2) {
+    Buttons.playOrPause.setImage(getPlayOrPauseImage());
   }
-  Seek.playbackTime = '';
-  Seek.playbackLength = '';
-  NowPlaying.albumold = '#@!';
-  on_metadb_changed();
-  Seek.refresh();
+  CoverViewer.albumold = '#@!';
+  CoverViewer.getAlbumArt(fb.GetNowPlaying());
+  SeekBar.updateProgress();
+  SeekBar.updateTitle();
+  SeekBar.updateTime();
 }
 
-function on_playback_order_changed (new_order) {
+function on_playback_order_changed (newOrder) {
+  Buttons.order.setImage(getPlaybackOrderImage());
   repaintAll();
 }
 
 function on_volume_change (val) {
+  VolumeBar.updateProgress();
   repaintAll();
 }
