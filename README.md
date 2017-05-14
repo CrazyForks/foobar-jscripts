@@ -12,7 +12,7 @@ How to install?
 
 * TODO
 
-## _ESLyric _ Folder
+## _ESLyric_ Folder
 
 Scripts in this folder are only for **ESLyric**, a lyric download & display component for foobar2000 developed by **ttsping**.
 

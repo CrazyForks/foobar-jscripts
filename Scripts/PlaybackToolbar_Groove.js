@@ -210,7 +210,7 @@ function getFonts () {
   }
 
   font.time = font.small = font.title = gdi.Font(font.Name, sizeOf(12));
-  if (font.Name !== font.title.Name) {
+  if (font.Name.toLowerCase() !== font.title.Name.toLowerCase()) {
     fb.trace('Warning: failed to load font `' + fontName + "'");
     font.Name = font.title.Name;
   }
