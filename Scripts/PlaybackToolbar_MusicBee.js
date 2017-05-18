@@ -315,63 +315,71 @@ var Images = getImages();
 // Button && Buttons
 // -----------------
 
+var BUTTON_HOVER_ALPHA = 200;
+var BUTTON_DOWN_ALPHA = 128;
+
 function Button (img, func) {
   this.setImage(img);
   this.func = func;
+
+  // state: 0 - normal, 1: hover, 2: down.
   this.state = 0;
   this.visible = true;
   this.enabled = false;
 }
 
-Button.prototype = {
-  trace: function (x, y) {
-    var isMouseOver = x > this.x && x < this.x + this.w && y > this.y && y < this.y + this.h;
-    return this.enabled && this.visible && isMouseOver;
-  },
-  repaint: repaintAll,
+Button.prototype.trace = function (x, y) {
+  var isMouseOver = x > this.x && x < this.x + this.w && y > this.y && y < this.y + this.h;
+  return this.enabled && this.visible && isMouseOver;
+};
+Button.prototype.repaint = repaintAll;
 
-  setXY: function (x, y) {
-    this.x = x;
-    this.y = y;
-    this.enabled = true;
-  },
-  setImage: function (img) {
-    this.img = img;
-    try {
-      this.w = img.width;
-      this.h = img.height;
-    } catch (e) {
-      throw new Error('Error: Invalid button image. ' + e);
-    }
-  },
-  setState: function (state) {
-    if (state === this.state) return;
-    this.state = state;
-    this.repaint();
-  },
-
-  draw: function (gr) {
-    if (!this.visible || !this.enabled) return;
-    var x = this.x;
-    var y = this.y;
-    var alpha = (this.state === 2 ? 128 : this.state === 1 ? 200 : 255);
-    var img = this.img;
-    gr.DrawImage(img, x, y, img.Width, img.Height, 0, 0, img.Width, img.Height, 0, alpha);
+Button.prototype.setXY = function (x, y) {
+  this.x = x;
+  this.y = y;
+  this.enabled = true;
+};
+Button.prototype.setImage = function (img) {
+  this.img = img;
+  try {
+    this.w = img.width;
+    this.h = img.height;
+  } catch (e) {
+    throw new Error('Error: Invalid button image. ' + e);
   }
+};
+
+Button.prototype.setState = function (state) {
+  if (state === this.state) return;
+  this.state = state;
+  this.repaint();
+};
+
+Button.prototype.draw = function (gr) {
+  if (!this.visible || !this.enabled) return;
+  var alpha = (this.state === 2 ? BUTTON_DOWN_ALPHA : this.state === 1 ? BUTTON_HOVER_ALPHA : 255);
+  var img = this.img;
+  gr.DrawImage(img, this.x, this.y, img.Width, img.Height, 0, 0, img.Width, img.Height, 0, alpha);
 };
 
 var ButtonsHandler = function (btns) {
+  this.hbtn = null;
+  this.dbtn = null;
   this.btns = [];
-  for (var key in btns) {
-    this.btns.push(btns[key]);
-  }
-  this.length = this.btns.length;
-  this.hbtn = this.dbtn = null;
+
+  this.add(btns);
 };
 
-ButtonsHandler.prototype.addButton = function (btn) {
-  for (var i = 0, len = this.btns.length; i < len; i++) {
+ButtonsHandler.prototype.add = function (btns) {
+  if (btns == null) return;
+  if (isArray(btns)) {
+    this.btns = this.btns.concat(btns);
+  } else {
+    for (var id in btns) {
+      this.btns.push(btns[id]);
+    }
   }
+  this.length = this.btns.length;
 };
 
 ButtonsHandler.prototype.onMouseMove = function (x, y) {
@@ -507,7 +515,7 @@ function getButtons () {
 }
 
 var Buttons = getButtons();
-var BHandler = new ButtonsHandler(Buttons);
+var ButtonCollection = new ButtonsHandler(Buttons);
 
 // AlbumArt obj ===================================================
 
@@ -1025,7 +1033,7 @@ function on_paint (gr) {
   Wallpaper.draw(gr);
 
   // Buttons
-  BHandler.draw(gr);
+  ButtonCollection.draw(gr);
 
   // Cover viewer
   CoverViewer.draw(gr);
@@ -1056,19 +1064,19 @@ function on_paint (gr) {
 }
 
 function on_mouse_move (x, y) {
-  BHandler.onMouseMove(x, y);
+  ButtonCollection.onMouseMove(x, y);
   SeekBar.onMouseMove(x, y);
   VolumeBar.onMouseMove(x, y);
 }
 
 function on_mouse_lbtn_down (x, y, mask) {
-  BHandler.onMouseDown(x, y);
+  ButtonCollection.onMouseDown(x, y);
   SeekBar.onMouseDown(x, y);
   VolumeBar.onMouseDown(x, y);
 }
 
 function on_mouse_lbtn_up (x, y, mask) {
-  BHandler.onMouseUp(x, y);
+  ButtonCollection.onMouseUp(x, y);
   SeekBar.onMouseUp(x, y);
   VolumeBar.onMouseUp(x, y);
 }
@@ -1078,7 +1086,7 @@ function on_mouse_rbtn_up (x, y, mask) {
 }
 
 function on_mouse_leave () {
-  BHandler.onMouseLeave();
+  ButtonCollection.onMouseLeave();
 }
 
 function on_playback_edited (handlelist, fromhook) {
