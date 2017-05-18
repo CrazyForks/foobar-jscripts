@@ -23,6 +23,13 @@
 // Reserved
 
 var shuffleType = window.GetProperty('shuffleType', 4);
+
+// Check if foobar2000's shuffle type is different from script settings.
+if (fb.PlaybackOrder > 3 && fb.PlaybackOrder !== shuffleType) {
+  fb.PlaybackOrder = shuffleType;
+  fb.trace('Playback order is changed to scrips property setting.');
+}
+
 var REFRESH_INTERVAL = 15;
 
 // Image.resize
@@ -225,10 +232,11 @@ var Font = getFonts();
 // -----------------------
 
 function getImages (_font, _color) {
+  var sfCenter = StringFormat(1, 1);
+  var fontAssets = gdi.Font(Font.AssetsName, sizeOf(18));
+  var images = {};
   var g;
   var btnW, nobW, coverW;
-  var sf = StringFormat(1, 1);
-  var images = {};
 
   // Convert icon char to image.
   function getImg (code, font, color, w, h) {
@@ -249,26 +257,31 @@ function getImages (_font, _color) {
     'play': '\ue102',
     'next': '\ue101',
     'volume': '\ue15d',
+    'volumeMute': '\ue74f',
     'shuffle': '\ue14b',
     'repeat': '\ue149',
     'repeat1': '\ue1cc',
     'normal': '\ue13c'
   };
   btnW = sizeOf(40);
-  var fontAssets = gdi.Font(Font.AssetsName, sizeOf(18));
   for (var i in icons) {
     images[i] = getImg(icons[i], fontAssets, Color.fg, btnW, btnW);
   }
 
   var icons2 = {
-    'volume0': '\ue992',
     'volume1': '\ue993',
     'volume2': '\ue994',
     'volume3': '\ue995'
   };
-  btnW = sizeOf(60 - 12);
+
   for (var j in icons2) {
-    images[j] = getImg(icons2[j], fontAssets, Color.fg, btnW, btnW);
+    images[j] = gdi.CreateImage(btnW, btnW);
+    g = images[j].GetGraphics();
+    g.SetTextRenderingHint(3);
+    g.DrawString(icons.volume, fontAssets, setAlpha(Color.fg, 64), 0, 0, btnW, btnW, sfCenter);
+    g.DrawString(icons2[j], fontAssets, Color.fg, 0, 0, btnW, btnW, sfCenter);
+    g.SetTextRenderingHint(0);
+    images[j].ReleaseGraphics(g);
   }
 
   // Nocover image
@@ -279,16 +292,15 @@ function getImages (_font, _color) {
   g = images.nocover.GetGraphics();
   g.FillSolidRect(0, 0, coverW, coverW, setAlpha(Color.fg, 50));
   g.SetTextRenderingHint(4);
-  g.DrawString('\ue958', fontAssets, setAlpha(Color.fg, 128), 0, 0, coverW, coverW, sf);
+  g.DrawString('\ue958', fontAssets, setAlpha(Color.fg, 128), 0, 0, coverW, coverW, sfCenter);
   g.SetTextRenderingHint(0);
   images.nocover.ReleaseGraphics(g);
 
-  // Slider nob images
+  // Slider nob image
   nobW = sizeOf(16);
   images.nob = gdi.CreateImage(nobW, nobW);
   g = images.nob.GetGraphics();
   g.SetSmoothingMode(2);
-  g.FillEllipse(sizeOf(2), sizeOf(2), nobW - sizeOf(4), nobW - sizeOf(4), Color.bg);
   g.DrawEllipse(sizeOf(2), sizeOf(2), nobW - sizeOf(4), nobW - sizeOf(4), sizeOf(1), Color.fg);
   g.SetSmoothingMode(0);
   images.nob.ReleaseGraphics(g);
@@ -303,63 +315,71 @@ var Images = getImages();
 // Button && Buttons
 // -----------------
 
+var BUTTON_HOVER_ALPHA = 200;
+var BUTTON_DOWN_ALPHA = 128;
+
 function Button (img, func) {
   this.setImage(img);
   this.func = func;
+
+  // state: 0 - normal, 1: hover, 2: down.
   this.state = 0;
   this.visible = true;
   this.enabled = false;
 }
 
-Button.prototype = {
-  trace: function (x, y) {
-    var isMouseOver = x > this.x && x < this.x + this.w && y > this.y && y < this.y + this.h;
-    return this.enabled && this.visible && isMouseOver;
-  },
-  repaint: repaintAll,
+Button.prototype.trace = function (x, y) {
+  var isMouseOver = x > this.x && x < this.x + this.w && y > this.y && y < this.y + this.h;
+  return this.enabled && this.visible && isMouseOver;
+};
+Button.prototype.repaint = repaintAll;
 
-  setXY: function (x, y) {
-    this.x = x;
-    this.y = y;
-    this.enabled = true;
-  },
-  setImage: function (img) {
-    this.img = img;
-    try {
-      this.w = img.width;
-      this.h = img.height;
-    } catch (e) {
-      throw new Error('Error: Invalid button image. ' + e);
-    }
-  },
-  setState: function (state) {
-    if (state === this.state) return;
-    this.state = state;
-    this.repaint();
-  },
-
-  draw: function (gr) {
-    if (!this.visible || !this.enabled) return;
-    var x = this.x;
-    var y = this.y;
-    var alpha = (this.state === 2 ? 128 : this.state === 1 ? 200 : 255);
-    var img = this.img;
-    gr.DrawImage(img, x, y, img.Width, img.Height, 0, 0, img.Width, img.Height, 0, alpha);
+Button.prototype.setXY = function (x, y) {
+  this.x = x;
+  this.y = y;
+  this.enabled = true;
+};
+Button.prototype.setImage = function (img) {
+  this.img = img;
+  try {
+    this.w = img.width;
+    this.h = img.height;
+  } catch (e) {
+    throw new Error('Error: Invalid button image. ' + e);
   }
+};
+
+Button.prototype.setState = function (state) {
+  if (state === this.state) return;
+  this.state = state;
+  this.repaint();
+};
+
+Button.prototype.draw = function (gr) {
+  if (!this.visible || !this.enabled) return;
+  var alpha = (this.state === 2 ? BUTTON_DOWN_ALPHA : this.state === 1 ? BUTTON_HOVER_ALPHA : 255);
+  var img = this.img;
+  gr.DrawImage(img, this.x, this.y, img.Width, img.Height, 0, 0, img.Width, img.Height, 0, alpha);
 };
 
 var ButtonsHandler = function (btns) {
+  this.hbtn = null;
+  this.dbtn = null;
   this.btns = [];
-  for (var key in btns) {
-    this.btns.push(btns[key]);
-  }
-  this.length = this.btns.length;
-  this.hbtn = this.dbtn = null;
+
+  this.add(btns);
 };
 
-ButtonsHandler.prototype.addButton = function (btn) {
-  for (var i = 0, len = this.btns.length; i < len; i++) {
+ButtonsHandler.prototype.add = function (btns) {
+  if (btns == null) return;
+  if (isArray(btns)) {
+    this.btns = this.btns.concat(btns);
+  } else {
+    for (var id in btns) {
+      this.btns.push(btns[id]);
+    }
   }
+  this.length = this.btns.length;
 };
 
 ButtonsHandler.prototype.onMouseMove = function (x, y) {
@@ -440,6 +460,21 @@ function getPlayOrPauseImage () {
   }
 }
 
+function getVolumeImage () {
+  var imgs = [
+    Images.volumeMute,
+    Images.volume1,
+    Images.volume2,
+    Images.volume3
+  ];
+  var vol = vol2pos(fb.Volume);
+
+  if (vol > 0.66) return imgs[3];
+  if (vol > 0.33) return imgs[2];
+  if (vol === 0) return imgs[0];
+  return imgs[1];
+}
+
 function getButtons () {
   var Buttons = {};
 
@@ -448,7 +483,7 @@ function getButtons () {
   Buttons.next = new Button(Images.next, onNext);
   Buttons.playOrPause = new Button(getPlayOrPauseImage(), onPlayOrPause);
   Buttons.order = new Button(getPlaybackOrderImage(), onPlaybackOrder);
-  Buttons.volume = new Button(Images.volume, onVolume);
+  Buttons.volume = new Button(getVolumeImage(), onVolume);
 
   function onPrev () {
     fb.Prev();
@@ -633,14 +668,14 @@ var Image = {
 };
 
 // Slider class =====================================================
-// progressbar, volumebar, etc.
+// seekbar, volumebar, etc.
 
 function Slider (img, height, getpos, setpos) {
   this.img = img; // nob image
   this.height = height; // visual height
   this.visible = true;
-  this.getpos = getpos || function () {};
-  this.setpos = setpos || function () { return -1; };
+  this.getpos = isFunction(getpos) ? getpos : function () {};
+  this.setpos = isFunction(setpos) ? setpos : function () { return -1; };
   this.drag = false;
 
   this.pos = this.getpos();
@@ -658,21 +693,47 @@ Slider.prototype.repaint = repaintAll;
 Slider.prototype.draw = function (gr) {
   if (!this.visible || this.height > this.h || this.w <= 0) return;
 
+  if (this.img) {
+    this.drawWithNobImage(gr);
+  } else {
+    this.drawWithoutNobImage(gr);
+  }
+};
+
+Slider.prototype.drawWithNobImage = function (gr) {
+  if (!this.img) {
+    this.drawWithoutNobImage(gr);
+    return;
+  }
+
   var offsetY = Math.round((this.h - this.height) / 2);
   var img = this.img;
-  var imgX, imgY;
+  var imgX = this.x + this.w * (this.drag ? this.dragpos : this.pos) - img.width / 2;
+  var imgY = (this.h - img.height) / 2 + this.y;
 
-  // Draw slider bg.
-  gr.FillSolidRect(this.x, this.y + offsetY, this.w, this.height, setAlpha(Color.fg, 128));
-  // Draw active slider bg.
-  if (this.pos > 0 || this.pos <= 1) {
-    gr.FillSolidRect(this.x, this.y + offsetY, this.w * this.pos, this.height, Color.fg);
-  }
   // Draw nob image.
-  if (this.img && isNumeric(this.pos)) {
-    imgX = this.x + this.w * (this.drag ? this.dragpos : this.pos) - img.width / 2;
-    imgY = (this.h - img.height) / 2 + this.y;
-    gr.DrawImage(this.img, imgX, imgY, img.width, img.height, 0, 0, img.Width, img.Height, 0, 255);
+  gr.DrawImage(this.img, imgX, imgY, img.width, img.height, 0, 0, img.Width, img.Height, 0, 255);
+
+  // Active progress bar bg.
+  if (imgX - this.x > 0) {
+    gr.FillSolidRect(this.x, this.y + offsetY, imgX - this.x, this.height, Color.fg);
+  }
+
+  // Inactive progress bar bg.
+  if (this.x + this.w > imgX + img.width) {
+    gr.FillSolidRect(imgX + img.width, this.y + offsetY, this.x + this.w - imgX - img.width, this.height, setAlpha(Color.fg, 128));
+  }
+};
+
+Slider.prototype.drawWithoutNobImage = function (gr) {
+  var offsetY = Math.round((this.h - this.height) / 2);
+
+  // Inactive bg.
+  gr.FillSolidRect(this.x, this.y + offsetY, this.w, this.height, setAlpha(Color.fg, 128));
+
+  // Active bg.
+  if (this.pos > 0) {
+    gr.FillSolidRect(this.x, this.y + offsetY, this.w * this.pos, this.height, Color.fg);
   }
 };
 
@@ -719,7 +780,8 @@ Slider.prototype.onMouseUp = function (x, y) {
 function getSeek () {
   var onGetProgress = function () {
     try {
-      return fb.PlaybackTime / fb.PlaybackLength;
+      var pos = fb.PlaybackTime / fb.PlaybackLength;
+      return isNumeric(pos) ? pos : 0;
     } catch (e) {
       return 0;
     }
@@ -805,9 +867,9 @@ CoverViewer.getAlbumArt = function (metadb) {
 CoverViewer.draw = function (gr) {
   // album art image
   if (this.img) {
-    gr.DrawImage(this.img, this.x + 5, this.y + 5, this.h - 10, this.h - 10, 0, 0, this.img.Width, this.img.Height, 0, 225);
+    gr.DrawImage(this.img, this.x, this.y, this.h, this.h, 0, 0, this.img.Width, this.img.Height, 0, 225);
   } else {
-    this.nocover && gr.DrawImage(this.nocover, this.x + 5, this.y + 5, this.h - 10, this.h - 10, 0, 0, this.nocover.Width, this.nocover.Height, 0, 255);
+    this.nocover && gr.DrawImage(this.nocover, this.x, this.y, this.h, this.h, 0, 0, this.nocover.Width, this.nocover.Height, 0, 255);
   }
 
   // hover color
@@ -1078,5 +1140,6 @@ function on_playback_order_changed (newOrder) {
 
 function on_volume_change (val) {
   VolumeBar.updateProgress();
+  Buttons.volume.setImage(getVolumeImage());
   repaintAll();
 }
