@@ -53,6 +53,11 @@ var MK_SHIFT = 4;
 var ww = 0;
 var wh = 0;
 
+var Mouse = {
+  x: 0,
+  y: 0
+};
+
 // Return a zoomed value, to adapt Windows zoom percent.
 var sizeOf = (function () {
   var objShell, tmp, factor;
@@ -93,6 +98,13 @@ function isNumeric (obj) {
 
 function isFunction (obj) {
   return Object.prototype.toString.call(obj) === '[object Function]';
+}
+
+function limit (num, a, b) {
+  if (!isNumeric(num)) return num;
+  if (num < a) num = a;
+  if (num > b) num = b;
+  return num;
 }
 
 // Used in gdi.DrawString, set string alignment and etc.
@@ -981,7 +993,16 @@ var VolumeBar = (function () {
   function setVolume (pos) {
     fb.Volume = pos2vol(pos);
   }
-  return new Slider(Images.nob, sizeOf(2), getVolume, setVolume);
+
+  var V = new Slider(Images.nob, sizeOf(2), getVolume, setVolume);
+
+  V.onMouseWheel = function (step) {
+    var pos = getVolume() * 100;
+    pos += step * 10;
+    setVolume(limit(pos / 100, 0, 1));
+  };
+
+  return V;
 })();
 
 if (fb.IsPlaying) {
@@ -1064,6 +1085,11 @@ function on_paint (gr) {
 }
 
 function on_mouse_move (x, y) {
+
+  // Cache mouse cursor position.
+  Mouse.x = x;
+  Mouse.y = y;
+
   ButtonCollection.onMouseMove(x, y);
   SeekBar.onMouseMove(x, y);
   VolumeBar.onMouseMove(x, y);
@@ -1086,7 +1112,15 @@ function on_mouse_rbtn_up (x, y, mask) {
 }
 
 function on_mouse_leave () {
+  // Set mouse cursor position to (-1, -1)
+  Mouse.x = -1;
+  Mouse.y = -1;
+
   ButtonCollection.onMouseLeave();
+}
+
+function on_mouse_wheel (step) {
+  VolumeBar.onMouseWheel(step);
 }
 
 function on_playback_edited (handlelist, fromhook) {
