@@ -27,7 +27,7 @@ var shuffleType = window.GetProperty('shuffleType', 4);
 // Check if foobar2000's shuffle type is different from script settings.
 if (fb.PlaybackOrder > 3 && fb.PlaybackOrder !== shuffleType) {
   fb.PlaybackOrder = shuffleType;
-  fb.trace('Playback order is changed to scrips property setting.');
+  fb.trace('Playback order has been changed to scrips property setting.');
 }
 
 var REFRESH_INTERVAL = 15;
@@ -37,6 +37,7 @@ var IMG_ADAPT = 0; // 适应
 var IMG_CROP = 1; // 修剪
 var IMG_STRETCH = 2; // 拉伸
 var IMG_FILL = 3; // 填充
+
 // gr.gdiDrawText
 // => CALCRECT | END_ELLIPSIS | NO_PREFIX
 // var DT_LT = 0x00000400 | 0x00008000 | 0x00000800
@@ -51,6 +52,11 @@ var MK_SHIFT = 4;
 
 var ww = 0;
 var wh = 0;
+
+var Mouse = {
+  x: 0,
+  y: 0
+};
 
 // Return a zoomed value, to adapt Windows zoom percent.
 var sizeOf = (function () {
@@ -92,6 +98,13 @@ function isNumeric (obj) {
 
 function isFunction (obj) {
   return Object.prototype.toString.call(obj) === '[object Function]';
+}
+
+function limit (num, a, b) {
+  if (!isNumeric(num)) return num;
+  if (num < a) num = a;
+  if (num > b) num = b;
+  return num;
 }
 
 // Used in gdi.DrawString, set string alignment and etc.
@@ -667,19 +680,20 @@ var Image = {
 
 };
 
-// Slider class =====================================================
-// seekbar, volumebar, etc.
+// Slider Class. seekbar, volumebar, etc.
+// ---------------------------------------
 
 function Slider (img, height, getpos, setpos) {
   this.img = img; // nob image
   this.height = height; // visual height
-  this.visible = true;
   this.getpos = isFunction(getpos) ? getpos : function () {};
   this.setpos = isFunction(setpos) ? setpos : function () { return -1; };
   this.drag = false;
 
   this.pos = this.getpos();
   this.dragpos = 0;
+  this.visible = true;
+  this.enabled = false;
 }
 
 Slider.prototype.trace = function (x, y) {
@@ -691,7 +705,7 @@ Slider.prototype.trace = function (x, y) {
 Slider.prototype.repaint = repaintAll;
 
 Slider.prototype.draw = function (gr) {
-  if (!this.visible || this.height > this.h || this.w <= 0) return;
+  if (!this.visible || !this.enabled || this.height > this.h || this.w <= 0) return;
 
   if (this.img) {
     this.drawWithNobImage(gr);
@@ -747,6 +761,7 @@ Slider.prototype.setLayout = function (x, y, w, h) {
   this.w = w;
   this.h = h;
   if (!this.visible) this.w = this.h = 0;
+  this.enabled = true;
 };
 
 Slider.prototype.onMouseMove = function (x, y) {
@@ -865,7 +880,7 @@ CoverViewer.getAlbumArt = function (metadb) {
 };
 
 CoverViewer.draw = function (gr) {
-  // album art image
+  // Album art image (cover as default).
   if (this.img) {
     gr.DrawImage(this.img, this.x, this.y, this.h, this.h, 0, 0, this.img.Width, this.img.Height, 0, 225);
   } else {
@@ -882,10 +897,7 @@ CoverViewer.size = function (x, y, w, h) {
   this.y = y;
   this.w = w;
   this.h = h;
-  this.onSize && this.onSize();
 };
-
-CoverViewer.onSize = function () {};
 
 // Wallpaper ============================================================
 
@@ -981,7 +993,16 @@ var VolumeBar = (function () {
   function setVolume (pos) {
     fb.Volume = pos2vol(pos);
   }
-  return new Slider(Images.nob, sizeOf(2), getVolume, setVolume);
+
+  var V = new Slider(Images.nob, sizeOf(2), getVolume, setVolume);
+
+  V.onMouseWheel = function (step) {
+    var pos = getVolume() * 100;
+    pos += step * 10;
+    setVolume(limit(pos / 100, 0, 1));
+  };
+
+  return V;
 })();
 
 if (fb.IsPlaying) {
@@ -1064,6 +1085,11 @@ function on_paint (gr) {
 }
 
 function on_mouse_move (x, y) {
+
+  // Cache mouse cursor position.
+  Mouse.x = x;
+  Mouse.y = y;
+
   ButtonCollection.onMouseMove(x, y);
   SeekBar.onMouseMove(x, y);
   VolumeBar.onMouseMove(x, y);
@@ -1071,7 +1097,7 @@ function on_mouse_move (x, y) {
 
 function on_mouse_lbtn_down (x, y, mask) {
   ButtonCollection.onMouseDown(x, y);
-  SeekBar.onMouseDown(x, y);
+  fb.IsPlaying && SeekBar.onMouseDown(x, y);
   VolumeBar.onMouseDown(x, y);
 }
 
@@ -1086,7 +1112,15 @@ function on_mouse_rbtn_up (x, y, mask) {
 }
 
 function on_mouse_leave () {
+  // Set mouse cursor position to (-1, -1)
+  Mouse.x = -1;
+  Mouse.y = -1;
+
   ButtonCollection.onMouseLeave();
+}
+
+function on_mouse_wheel (step) {
+  VolumeBar.onMouseWheel(step);
 }
 
 function on_playback_edited (handlelist, fromhook) {
