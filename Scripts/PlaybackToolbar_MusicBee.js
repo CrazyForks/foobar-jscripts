@@ -998,7 +998,7 @@ var VolumeBar = (function () {
 
   V.onMouseWheel = function (step) {
     var pos = getVolume() * 100;
-    pos += step * 10;
+    pos += step * 5;
     setVolume(limit(pos / 100, 0, 1));
   };
 
