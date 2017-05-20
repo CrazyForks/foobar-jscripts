@@ -4,13 +4,19 @@ Scripts in this repo are mainly to enhance the experiences of using foobar2000.
 
 ## _Scripts_ folder
 
-JS files in `Scripts`folder are for **WSH Panel Mod Plus**, which is extended by **ttsping** based on **WSH Panel Mod** by **theophile** aka Wang. T. P.
-
-> Notice that till now only PlaybackControlPanel.js is almost finished.
+JS files in `Scripts`folder are for **WSH Panel Mod Plus**, which is extended by **ttsping** based on **WSH Panel Mod** by **theophile** (aka Wang. T. P.). These scripts are *single-file* scripts and there are no dependences.
 
 How to install?
 
-* TODO
+* Paste a script's content in WSH Panel Mod Plus' editor and save & exit. or
+
+* Use `PREPROCESS` to import a script like:
+
+* ```javascript
+  // ==PREPROCESS==
+  // @import "path/to/script.js"
+  // ==/PREPROCESS==
+  ```
 
 ## _ESLyric_ Folder
 
