@@ -12,11 +12,11 @@ How to install?
 
 * Use `PREPROCESS` to import a script like:
 
-* ```javascript
+```javascript
   // ==PREPROCESS==
   // @import "path/to/script.js"
   // ==/PREPROCESS==
-  ```
+```
 
 ## _ESLyric_ Folder
 
