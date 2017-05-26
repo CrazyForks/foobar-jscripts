@@ -91,6 +91,15 @@ var console = (function () {
   };
 })();
 
+var getProperty = function (key, defVal, checkFunc) {
+  var value = window.getProperty(key, defVal);
+  if (checkFunc && checkFunc(value)) {
+    return value;
+  } else {
+    return defVal;
+  }
+};
+
 // Refer: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/isArray
 function isArray (arg) {
   return Object.prototype.toString.call(arg) === '[object Array]';
@@ -196,6 +205,17 @@ function inherit (subClass, superClass) {
   if (superClass.prototype.constructor === Object.prototype.constructor) {
     superClass.prototype.constructor = superClass;
   }
+}
+
+function resizeImage (image, width, height, type, interpolation) {
+  // Resize functions.
+  var crop = function () {};
+  var adapt = function () {};
+  var stretch = function () {};
+  var fill = function () {};
+  var func = [adapt, crop, stretch, fill][type];
+
+  return func(image, width, height, interpolation);
 }
 
 // Color
@@ -922,12 +942,11 @@ CoverViewer.getAlbumArt = function (metadb) {
     // Cache image for other usage.
     self.imgcache = image;
     if (self.imgcache && self.h > 10) {
-      // self.img = self.imgcache.Resize(self.h - 10, self.h - 10, 7)
-      self.img = Image.resize(self.imgcache, self.h - 10, self.h - 10, IMG_CROP, 7);
+      self.img = Image.resize(self.imgcache, self.h, self.h, IMG_CROP, 3);
     }
-    // Gen nocover image, should be exec only once.
-    if (!self.nocover || self.nocover.Width !== self.h - 10) {
-      self.nocover = Images.nocover.Resize(self.h - 10, self.h - 10, 7);
+    // Resize nocover image, should be exec only once.
+    if (!self.nocover || self.nocover.Width !== self.h) {
+      self.nocover = Images.nocover.Resize(self.h, self.h, 7);
     }
     self.repaint();
     Wallpaper.update();
@@ -1081,6 +1100,7 @@ var VolumeBar = (function () {
   var V = new Slider(Images.nob, sizeOf(2), getVolume, setVolume);
 
   V.onMouseWheel = function (step) {
+    if (!V.visible) return;
     var pos = getVolume() * 100;
     pos += step * 5;
     setVolume(limit(pos / 100, 0, 1));
@@ -1091,8 +1111,6 @@ var VolumeBar = (function () {
 
   return V;
 })();
-
-var toggleVolumeBar = function () {};
 
 if (fb.IsPlaying) {
   on_playback_new_track(fb.GetNowPlaying());
@@ -1169,10 +1187,6 @@ function on_paint (gr) {
 
   // Volumebar
   VolumeBar.draw(gr);
-  if (VolumeBar.visible) {
-    // var volW = gr.CalcTextWidth('100', Font.title)
-    // gr.GdiDrawText(parseInt(fb.Volume, 10) + 100, Font.title, Color.fg, VolumeBar.x + VolumeBar.w + sizeOf(10), 0, volW, wh, DT_CC)
-  }
 }
 
 function on_mouse_move (x, y) {

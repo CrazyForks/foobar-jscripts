@@ -91,6 +91,15 @@ var console = (function () {
   };
 })();
 
+var getProperty = function (key, defVal, checkFunc) {
+  var value = window.getProperty(key, defVal);
+  if (checkFunc && checkFunc(value)) {
+    return value;
+  } else {
+    return defVal;
+  }
+};
+
 // Refer: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/isArray
 function isArray (arg) {
   return Object.prototype.toString.call(arg) === '[object Array]';
@@ -196,6 +205,17 @@ function inherit (subClass, superClass) {
   if (superClass.prototype.constructor === Object.prototype.constructor) {
     superClass.prototype.constructor = superClass;
   }
+}
+
+function resizeImage (image, width, height, type, interpolation) {
+  // Resize functions.
+  var crop = function () {};
+  var adapt = function () {};
+  var stretch = function () {};
+  var fill = function () {};
+  var func = [adapt, crop, stretch, fill][type];
+
+  return func(image, width, height, interpolation);
 }
 
 // Color
@@ -868,12 +888,11 @@ CoverViewer.getAlbumArt = function (metadb) {
     // Cache image for other usage.
     self.imgcache = image;
     if (self.imgcache && self.h > 10) {
-      // self.img = self.imgcache.Resize(self.h - 10, self.h - 10, 7)
-      self.img = Image.resize(self.imgcache, self.h - 10, self.h - 10, IMG_CROP, 7);
+      self.img = Image.resize(self.imgcache, self.h, self.h, IMG_CROP, 3);
     }
-    // Gen nocover image, should be exec only once.
-    if (!self.nocover || self.nocover.Width !== self.h - 10) {
-      self.nocover = Images.nocover.Resize(self.h - 10, self.h - 10, 7);
+    // Resize nocover image, should be exec only once.
+    if (!self.nocover || self.nocover.Width !== self.h) {
+      self.nocover = Images.nocover.Resize(self.h, self.h, 7);
     }
     self.repaint();
     Wallpaper.update();
