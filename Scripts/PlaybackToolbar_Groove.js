@@ -894,8 +894,6 @@ ButtonCollection.add([ CoverViewer ]);
 CoverViewer.func = function () {
   if (!fb.IsPlaying) return;
 
-  console.log('Trace click on CoverViewer.');
-
   fb.ActivePlaylist = fb.PlayingPlaylist;
   fb.RunMainMenuCommand('View/Show now playing in playlist');
 };

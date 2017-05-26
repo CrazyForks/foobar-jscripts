@@ -38,9 +38,14 @@ var IMG_CROP = 1; // 修剪
 var IMG_STRETCH = 2; // 拉伸
 var IMG_FILL = 3; // 填充
 
-// gr.gdiDrawText
-// => CALCRECT | END_ELLIPSIS | NO_PREFIX
-// var DT_LT = 0x00000400 | 0x00008000 | 0x00000800
+var DT_CENTER = 0x00000001;
+var DT_VCENTER = 0x00000004;
+var DT_CALCRECT = 0x00000400;
+var DT_NOPREFIX = 0x00000800;
+var DT_END_ELLIPSIS = 0x00008000;
+var DT_LT = DT_CALCRECT | DT_NOPREFIX;
+// var DT_LC = DT_LT | DT_VCENTER | DT_END_ELLIPSIS
+var DT_CC = DT_LT | DT_CENTER | DT_VCENTER | DT_END_ELLIPSIS;
 
 // tf objects is recommended to be cached before use.
 var TF_LENGTH = fb.TitleFormat('[%length%]');
@@ -303,7 +308,7 @@ function getImages (_font, _color) {
 
   images.nocover = gdi.CreateImage(coverW, coverW);
   g = images.nocover.GetGraphics();
-  g.FillSolidRect(0, 0, coverW, coverW, setAlpha(Color.fg, 50));
+  g.FillSolidRect(0, 0, coverW, coverW, setAlpha(Color.fg, 20));
   g.SetTextRenderingHint(4);
   g.DrawString('\ue958', fontAssets, setAlpha(Color.fg, 128), 0, 0, coverW, coverW, sfCenter);
   g.SetTextRenderingHint(0);
@@ -314,6 +319,7 @@ function getImages (_font, _color) {
   images.nob = gdi.CreateImage(nobW, nobW);
   g = images.nob.GetGraphics();
   g.SetSmoothingMode(2);
+  g.DrawEllipse(sizeOf(2), sizeOf(2), nobW - sizeOf(4), nobW - sizeOf(4), sizeOf(1), Color.fg);
   g.DrawEllipse(sizeOf(2), sizeOf(2), nobW - sizeOf(4), nobW - sizeOf(4), sizeOf(1), Color.fg);
   g.SetSmoothingMode(0);
   images.nob.ReleaseGraphics(g);
@@ -379,8 +385,19 @@ var ButtonsHandler = function (btns) {
   this.hbtn = null;
   this.dbtn = null;
   this.btns = [];
+  this.set(btns);
+};
 
-  this.add(btns);
+ButtonsHandler.prototype.set = function (btns) {
+  if (isArray(btns)) {
+    this.btns = btns;
+  } else {
+    this.btns = [];
+    for (var key in btns) {
+      this.btns.push(btns[key]);
+    }
+  }
+  this.length = this.btns.length;
 };
 
 ButtonsHandler.prototype.add = function (btns) {
@@ -755,7 +772,7 @@ Slider.prototype.updateProgress = function () {
   this.pos = this.getpos();
 };
 
-Slider.prototype.setLayout = function (x, y, w, h) {
+Slider.prototype.setBounds = function (x, y, w, h) {
   this.x = x;
   this.y = y;
   this.w = w;
@@ -832,6 +849,8 @@ inherit(CoverDisplay, Button);
 
 var CoverViewer = new CoverDisplay();
 
+ButtonCollection.add([ CoverViewer ]);
+
 // Set NowPlaying on-click function
 CoverViewer.func = function () {
   if (!fb.IsPlaying) return;
@@ -880,6 +899,10 @@ CoverViewer.getAlbumArt = function (metadb) {
 };
 
 CoverViewer.draw = function (gr) {
+  if (!this.visible || !this.enabled) {
+    return;
+  }
+
   // Album art image (cover as default).
   if (this.img) {
     gr.DrawImage(this.img, this.x, this.y, this.h, this.h, 0, 0, this.img.Width, this.img.Height, 0, 225);
@@ -892,11 +915,12 @@ CoverViewer.draw = function (gr) {
   this.state && gr.FillSolidRect(this.x, this.y, this.w, this.h, overlay);
 };
 
-CoverViewer.size = function (x, y, w, h) {
+CoverViewer.setBounds = function (x, y, w, h) {
   this.x = x;
   this.y = y;
   this.w = w;
   this.h = h;
+  this.enabled = true;
 };
 
 // Wallpaper ============================================================
@@ -1016,7 +1040,7 @@ on_playback_order_changed(fb.PlaybackOrder);
 // callback functions ===============================================
 
 function on_size () {
-  ww = window.Width;
+  ww = Math.max(window.Width, sizeOf(800));
   wh = window.Height;
   if (!ww || !wh) return;
 
@@ -1037,16 +1061,16 @@ function on_size () {
 
   // Cover
   var padCover = sizeOf(10);
-  CoverViewer.size(Buttons.next.x + Buttons.next.w + padLarge + padSmall, padCover, wh - padCover * 2, wh - padCover * 2);
+  CoverViewer.setBounds(Buttons.next.x + Buttons.next.w + padLarge + padSmall, padCover, wh - padCover * 2, wh - padCover * 2);
 
   // Seekbar
   var seekX = CoverViewer.x + CoverViewer.w + padSmall;
   var seekW = Buttons.volume.x - padLarge - padSmall - seekX;
   SeekBar.visible = true;
-  SeekBar.setLayout(seekX, (wh - sizeOf(20)) / 2 + sizeOf(10), seekW, sizeOf(20));
+  SeekBar.setBounds(seekX, (wh - sizeOf(20)) / 2 + sizeOf(10), seekW, sizeOf(20));
 
   // Volumebar
-  VolumeBar.setLayout(Buttons.volume.x + btnsW + padSmall, Math.round((wh - sizeOf(20)) / 2), sizeOf(100), sizeOf(20));
+  VolumeBar.setBounds(Buttons.volume.x + btnsW + padSmall, Math.round((wh - sizeOf(20)) / 2), sizeOf(100), sizeOf(20));
 }
 
 function on_paint (gr) {
@@ -1072,7 +1096,7 @@ function on_paint (gr) {
     if (fb.IsPlaying) {
       // Time
       timeW = gr.CalcTextWidth(time, Font.time);
-      gr.GdiDrawText(time, Font.time, Color.fg, SeekBar.x + SeekBar.w - timeW, (wh - 30) / 2 - 10, timeW, 20, 0);
+      gr.GdiDrawText(time, Font.time, Color.fg, SeekBar.x + SeekBar.w - timeW, (wh - 30) / 2 - 10, timeW, Font.time.Height, 0);
 
       // Artist - Title
       titleW = Math.min(gr.CalcTextWidth(title, Font.title), SeekBar.w - timeW - padSmall);
