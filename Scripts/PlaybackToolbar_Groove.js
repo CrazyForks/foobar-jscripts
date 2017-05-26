@@ -38,10 +38,14 @@ var IMG_CROP = 1; // 修剪
 var IMG_STRETCH = 2; // 拉伸
 var IMG_FILL = 3; // 填充
 
-// gr.gdiDrawText
-
-// CALCRECT | END_ELLIPSIS | NO_PREFIX
-var DT_LT = 0x00000400 | 0x00008000 | 0x00000800;
+var DT_CENTER = 0x00000001;
+var DT_VCENTER = 0x00000004;
+var DT_CALCRECT = 0x00000400;
+var DT_NOPREFIX = 0x00000800;
+var DT_END_ELLIPSIS = 0x00008000;
+var DT_LT = DT_CALCRECT | DT_NOPREFIX;
+// var DT_LC = DT_LT | DT_VCENTER | DT_END_ELLIPSIS
+var DT_CC = DT_LT | DT_CENTER | DT_VCENTER | DT_END_ELLIPSIS;
 
 // tf objects is recommended to be cached before use.
 var TF_LENGTH = fb.TitleFormat('[%length%]');
@@ -278,7 +282,8 @@ function getImages (_font, _color) {
     'shuffle': '\ue14b',
     'repeat': '\ue149',
     'repeat1': '\ue1cc',
-    'normal': '\ue13c'
+    'normal': '\ue13c',
+    'close': '\ue711'
   };
   btnW = sizeOf(40);
   for (var i in icons) {
@@ -307,7 +312,7 @@ function getImages (_font, _color) {
 
   images.nocover = gdi.CreateImage(coverW, coverW);
   g = images.nocover.GetGraphics();
-  g.FillSolidRect(0, 0, coverW, coverW, setAlpha(Color.fg, 50));
+  g.FillSolidRect(0, 0, coverW, coverW, setAlpha(Color.fg, 20));
   g.SetTextRenderingHint(4);
   g.DrawString('\ue958', fontAssets, setAlpha(Color.fg, 128), 0, 0, coverW, coverW, sfCenter);
   g.SetTextRenderingHint(0);
@@ -318,6 +323,7 @@ function getImages (_font, _color) {
   images.nob = gdi.CreateImage(nobW, nobW);
   g = images.nob.GetGraphics();
   g.SetSmoothingMode(2);
+  g.DrawEllipse(sizeOf(2), sizeOf(2), nobW - sizeOf(4), nobW - sizeOf(4), sizeOf(1), Color.fg);
   g.DrawEllipse(sizeOf(2), sizeOf(2), nobW - sizeOf(4), nobW - sizeOf(4), sizeOf(1), Color.fg);
   g.SetSmoothingMode(0);
   images.nob.ReleaseGraphics(g);
@@ -383,8 +389,19 @@ var ButtonsHandler = function (btns) {
   this.hbtn = null;
   this.dbtn = null;
   this.btns = [];
+  this.set(btns);
+};
 
-  this.add(btns);
+ButtonsHandler.prototype.set = function (btns) {
+  if (isArray(btns)) {
+    this.btns = btns;
+  } else {
+    this.btns = [];
+    for (var key in btns) {
+      this.btns.push(btns[key]);
+    }
+  }
+  this.length = this.btns.length;
 };
 
 ButtonsHandler.prototype.add = function (btns) {
@@ -501,6 +518,21 @@ function getButtons () {
   Buttons.playOrPause = new Button(getPlayOrPauseImage(), onPlayOrPause);
   Buttons.order = new Button(getPlaybackOrderImage(), onPlaybackOrder);
   Buttons.volume = new Button(getVolumeImage(), onVolume);
+  var closeVol = Buttons.closeVolume = new Button(Images.close, onCloseVolume);
+
+  closeVol.draw = function (gr) {
+    if (!this.enabled || !this.visible) return;
+
+    if (this.trace(Mouse.x, Mouse.y)) {
+      // Draw close btn.
+      var alpha = (this.state === 2 ? BUTTON_DOWN_ALPHA : this.state === 1 ? BUTTON_HOVER_ALPHA : 255);
+      var img = this.img;
+      gr.DrawImage(img, this.x, this.y, img.Width, img.Height, 0, 0, img.Width, img.Height, 0, alpha);
+    } else {
+      // Draw volume value.
+      gr.GdiDrawText(parseInt(fb.Volume, 10) + 100, Font.title, Color.fg, this.x, this.y, this.w, this.h, DT_CC);
+    }
+  };
 
   function onPrev () {
     fb.Prev();
@@ -522,6 +554,10 @@ function getButtons () {
     }
   }
 
+  function onCloseVolume () {
+    toggleVolumeDisplay();
+  }
+
   function onPlaybackOrder () {
     if (fb.PlaybackOrder < 2) {
       fb.PlaybackOrder += 1;
@@ -536,6 +572,15 @@ function getButtons () {
 }
 
 function toggleVolumeDisplay () {
+  VolumeBar.visible = !VolumeBar.visible;
+  Buttons.closeVolume.visible = VolumeBar.visible;
+  if (VolumeBar.visible) {
+    ButtonCollection.set([Buttons.volume, Buttons.closeVolume]);
+  } else {
+    ButtonCollection.set(Buttons);
+  }
+  ButtonCollection.add([CoverViewer]);
+  on_size();
 }
 
 var Buttons = getButtons();
@@ -766,7 +811,7 @@ Slider.prototype.updateProgress = function () {
   this.pos = this.getpos();
 };
 
-Slider.prototype.setLayout = function (x, y, w, h) {
+Slider.prototype.setBounds = function (x, y, w, h) {
   this.x = x;
   this.y = y;
   this.w = w;
@@ -865,9 +910,11 @@ CoverViewer.updateTitle = function (metadb) {
   }
 };
 
+// Exec it no matter album art is visible or not because we need to display
+// blurred background.
 CoverViewer.getAlbumArt = function (metadb) {
-  var albString;
   var self = this;
+  var albumKey;
 
   // Update title & artist.
   this.updateTitle();
@@ -890,12 +937,12 @@ CoverViewer.getAlbumArt = function (metadb) {
 
   // get on album switch
   if (metadb) {
-    albString = this.TF_ART_ALB.EvalWithMetadb(metadb);
-    if (albString !== this.albumold) {
+    albumKey = this.TF_ART_ALB.EvalWithMetadb(metadb);
+    if (albumKey !== this.albumold) {
       this.img = null;
       this.imgcache = null;
       AlbumArt.getAsync(metadb, AlbumArtId.front, this.onGetAlbumArt, { force: true });
-      this.albumold = albString;
+      this.albumold = albumKey;
     }
   } else {
     this.imgcache = null;
@@ -908,6 +955,10 @@ CoverViewer.getAlbumArt = function (metadb) {
 };
 
 CoverViewer.draw = function (gr) {
+  if (!this.visible || !this.enabled) {
+    return;
+  }
+
   // Album art image (cover as default).
   if (this.img) {
     gr.DrawImage(this.img, this.x, this.y, this.h, this.h, 0, 0, this.img.Width, this.img.Height, 0, 225);
@@ -922,15 +973,16 @@ CoverViewer.draw = function (gr) {
   gr.GdiDrawText(this.trackArtist, Font.small, Color.fg, this.x + this.h + pad, this.y + this.h / 2, this.w - this.h - pad, this.h / 2, 0);
 
   // hover color
-  var overlay = this.state === 1 ? setAlpha(0xffffffff, 128) : setAlpha(0xffffffff, 20);
+  var overlay = this.state === 1 ? setAlpha(0xffffffff, 10) : setAlpha(0xffffffff, 20);
   this.state && gr.FillSolidRect(this.x, this.y, this.w, this.h, overlay);
 };
 
-CoverViewer.size = function (x, y, w, h) {
+CoverViewer.setBounds = function (x, y, w, h) {
   this.x = x;
   this.y = y;
   this.w = w;
   this.h = h;
+  this.enabled = true;
 };
 
 // Wallpaper ============================================================
@@ -1036,8 +1088,13 @@ var VolumeBar = (function () {
     setVolume(limit(pos / 100, 0, 1));
   };
 
+  // Volumebar invisible on startup.
+  V.visible = false;
+
   return V;
 })();
+
+var toggleVolumeBar = function () {};
 
 if (fb.IsPlaying) {
   on_playback_new_track(fb.GetNowPlaying());
@@ -1059,27 +1116,37 @@ function on_size () {
   var pad = sizeOf(10);
   var btnsW = Buttons.prev.w;
   var btnsY = Math.round((wh - btnsW) / 2);
+  var firstBtn = VolumeBar.visible ? Buttons.volume : Buttons.prev;
 
   // Buttons Layout.
-  Buttons.prev.setXY(ww - btnsW * 5 - pad * 5, btnsY);
-  Buttons.playOrPause.setXY(ww - btnsW * 4 - pad * 4, btnsY);
-  Buttons.next.setXY(ww - btnsW * 3 - pad * 3, btnsY);
+  if (VolumeBar.visible) {
+    Buttons.volume.setXY(ww - btnsW * 4 - pad * 4, btnsY);
+    Buttons.closeVolume.setXY(ww - btnsW - pad, btnsY);
+  } else {
+    Buttons.prev.setXY(ww - btnsW * 5 - pad * 5, btnsY);
+    Buttons.playOrPause.setXY(ww - btnsW * 4 - pad * 4, btnsY);
+    Buttons.next.setXY(ww - btnsW * 3 - pad * 3, btnsY);
 
-  Buttons.volume.setXY(ww - btnsW - pad, btnsY);
-  Buttons.order.setXY(ww - btnsW * 2 - pad * 2, btnsY);
+    Buttons.volume.setXY(ww - btnsW - pad, btnsY);
+    Buttons.order.setXY(ww - btnsW * 2 - pad * 2, btnsY);
+  }
 
   // Cover
   var padCover = sizeOf(10);
-  CoverViewer.size(padCover, padCover, wh - padCover * 2 + pad + sizeOf(150), wh - padCover * 2);
+  var infoW = (ww > sizeOf(840) ? sizeOf(250) : sizeOf(150));
+  CoverViewer.visible = (firstBtn.x > wh - padCover + pad + infoW);
+  CoverViewer.setBounds(padCover, padCover, wh - padCover * 2 + pad + infoW, wh - padCover * 2);
 
   // Seekbar
   var seekX = CoverViewer.x + CoverViewer.w + pad;
-  var seekW = Buttons.prev.x - pad - pad - seekX;
-  // SeekBar.visible = true
-  SeekBar.setLayout(seekX, (wh - sizeOf(20)) / 2 - sizeOf(10), seekW, sizeOf(20));
+  var seekW = firstBtn.x - pad - pad - seekX;
+  SeekBar.visible = seekW > sizeOf(150);
+  SeekBar.setBounds(seekX, (wh - sizeOf(20)) / 2 - sizeOf(10), seekW, sizeOf(20));
 
-// Volumebar
-// VolumeBar.setLayout(Buttons.volume.x + btnsW + pad, Math.round((wh - sizeOf(20)) / 2), sizeOf(100), sizeOf(20))
+  // VolumeBar
+  var volX = firstBtn.x + firstBtn.w + pad;
+  var volW = Buttons.closeVolume.x - volX - pad;
+  VolumeBar.setBounds(volX, (wh - sizeOf(20)) / 2, volW, sizeOf(20));
 }
 
 function on_paint (gr) {
@@ -1098,12 +1165,16 @@ function on_paint (gr) {
   // Time & Length
   if (SeekBar.visible && fb.IsPlaying) {
     var durationW = gr.CalcTextWidth(SeekBar.playbackLength + '0', Font.time);
-    gr.GdiDrawText(SeekBar.playbackLength, Font.time, Color.fg, SeekBar.x + SeekBar.w - durationW, (wh - 30) / 2 + 10, durationW, 20, DT_LT);
-    gr.GdiDrawText(SeekBar.playbackTime, Font.time, Color.fg, SeekBar.x, (wh - 30) / 2 + 10, durationW, 20, DT_LT);
+    gr.GdiDrawText(SeekBar.playbackLength, Font.time, Color.fg, SeekBar.x + SeekBar.w - durationW, (wh - 30) / 2 + 10, durationW, Font.time.Height, DT_LT);
+    gr.GdiDrawText(SeekBar.playbackTime, Font.time, Color.fg, SeekBar.x, (wh - 30) / 2 + 10, durationW, Font.time.Height, DT_LT);
   }
 
   // Volumebar
   VolumeBar.draw(gr);
+  if (VolumeBar.visible) {
+    // var volW = gr.CalcTextWidth('100', Font.title)
+    // gr.GdiDrawText(parseInt(fb.Volume, 10) + 100, Font.title, Color.fg, VolumeBar.x + VolumeBar.w + sizeOf(10), 0, volW, wh, DT_CC)
+  }
 }
 
 function on_mouse_move (x, y) {
