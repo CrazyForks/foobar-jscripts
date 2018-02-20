@@ -13,16 +13,16 @@
 // Issues || bug reports || advices are all encouraged!
 
 var header = {
-  'Referer': 'http://music.163.com/',
+  Referer: 'http://music.163.com/',
   'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.101 Safari/537.36'
-// 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.152 Safari/537.36'
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.101 Safari/537.36'
 };
 var cookie = 'appver=2.0.2';
 
 var api = {
-  'lyric': 'http://music.163.com/api/song/lyric',
-  'query': 'http://music.163.com/api/search/get/'
+  lyric: 'http://music.163.com/api/song/lyric',
+  query: 'http://music.163.com/api/search/get/'
 };
 
 // Set false if do not want console output infos.
@@ -30,19 +30,19 @@ var dbg = false;
 
 // Eng | CHN, separated by `|', but only one will be displayed in lyric search
 // window (`Source' column) acording to foobar2000.exe's lang.
-function get_my_name () {
+function get_my_name() {
   return 'NeteaseCloudMusic|网易云音乐';
 }
 
-function get_version () {
-  return '0.0.1';
+function get_version() {
+  return '0.0.2';
 }
 
-function get_author () {
+function get_author() {
   return 'Elia';
 }
 
-function start_search (info, callback) {
+function start_search(info, callback) {
   var url;
   var title = info.Title;
   var artist = info.Artist;
@@ -105,7 +105,7 @@ function start_search (info, callback) {
       newLyric.Location = url;
       newLyric.Source = get_my_name();
       callback.AddLyric(newLyric);
-      (i % 2 === 0) && callback.Refresh();
+      i % 2 === 0 && callback.Refresh();
     } catch (e) {
       console('Unkown, failed to add lyric');
     }
@@ -114,13 +114,13 @@ function start_search (info, callback) {
   newLyric.Dispose();
 }
 
-function addHeaders (header, client) {
+function addHeaders(header, client) {
   for (var i in header) {
     client.addHttpHeader(i, header[i]);
   }
 }
 
-function getQueryString (artist, title, limit, type, offset) {
+function getQueryString(artist, title, limit, type, offset) {
   if (typeof limit === 'undefined') limit = 10;
   if (typeof type === 'undefined') type = 1;
   if (typeof offset === 'undefined') offset = 0;
@@ -129,18 +129,21 @@ function getQueryString (artist, title, limit, type, offset) {
   return 's=' + artist + '+' + title + '&limit=' + limit + '&type=' + type + '&offset=' + offset;
 }
 
-function processKeywords (str) {
+function processKeywords(str) {
   var s = str;
   s = s.toLowerCase();
   s = s.replace(/'|·|\$|&|–/g, '');
   // truncate all symbols
   s = s.replace(/\(.*?\)|\[.*?]|{.*?}|（.*?/g, '');
   s = s.replace(/[-/:-@[-`{-~]+/g, '');
-  s = s.replace(/[\u2014\u2018\u201c\u2026\u3001\u3002\u300a\u300b\u300e\u300f\u3010\u3011\u30fb\uff01\uff08\uff09\uff0c\uff1a\uff1b\uff1f\uff5e\uffe5]+/g, '');
+  s = s.replace(
+    /[\u2014\u2018\u201c\u2026\u3001\u3002\u300a\u300b\u300e\u300f\u3010\u3011\u30fb\uff01\uff08\uff09\uff0c\uff1a\uff1b\uff1f\uff5e\uffe5]+/g,
+    ''
+  );
   return s;
 }
 
-function json (text) {
+function json(text) {
   try {
     return JSON.parse(text);
   } catch (e) {
@@ -148,7 +151,7 @@ function json (text) {
   }
 }
 
-function console (s) {
+function console(s) {
   dbg && fb.trace(get_my_name() + ' $>  ' + s);
 }
 

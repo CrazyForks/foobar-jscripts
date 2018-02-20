@@ -1,8 +1,4 @@
-﻿/* global gdi utils fb ActiveXObject */
-/* eslint-disable no-mixed-operators */
-/* eslint-disable one-var */
-
-// Required:
+﻿// Required:
 // * foobar2000 v1.3.3+
 // * WSH Panel Mod Plus v1.5.7+
 //
@@ -14,13 +10,6 @@
 // @author "lenka"
 // @import "path\to\script.js"
 // ==/PREPROCESSOR==
-
-// TODO list:
-//
-// * Download albumArt from internet.
-// * Lastfm scrobbler
-
-// Reserved
 
 var shuffleType = window.GetProperty('shuffleType', 4);
 
@@ -44,7 +33,7 @@ var DT_CALCRECT = 0x00000400;
 var DT_NOPREFIX = 0x00000800;
 var DT_END_ELLIPSIS = 0x00008000;
 var DT_LT = DT_CALCRECT | DT_NOPREFIX;
-// var DT_LC = DT_LT | DT_VCENTER | DT_END_ELLIPSIS
+var DT_LC = DT_LT | DT_VCENTER | DT_END_ELLIPSIS
 var DT_CC = DT_LT | DT_CENTER | DT_VCENTER | DT_END_ELLIPSIS;
 
 // tf objects is recommended to be cached before use.
@@ -52,7 +41,6 @@ var TF_LENGTH = fb.TitleFormat('[%length%]');
 var TF_TITLE = fb.TitleFormat('%title%');
 var TF_ARTIST = fb.TitleFormat('[%artist%]');
 
-// mask key
 var MK_SHIFT = 4;
 
 var ww = 0;
@@ -64,7 +52,7 @@ var Mouse = {
 };
 
 // Return a zoomed value, to adapt Windows zoom percent.
-var sizeOf = (function () {
+var scale = (function () {
   var objShell, tmp, factor;
 
   objShell = new ActiveXObject('WScript.Shell');
@@ -82,7 +70,7 @@ var repaintAll = throttle(function () {
 }, REFRESH_INTERVAL);
 
 var console = (function () {
-  var debug = window.GetProperty('debug mode', false);
+  var debug = window.GetProperty('Debug', false);
   var log = function (str) {
     debug && fb.trace(str);
   };
@@ -121,20 +109,11 @@ function limit (num, a, b) {
   return num;
 }
 
-// Used in gdi.DrawString, set string alignment and etc.
-function StringFormat () {
-  var ref = [0, 0, 0, 0];
-  var len = arguments.length;
-  var i;
-
-  // ref.length == 4
-  for (i = 0; i < len && i < 4; i++) {
-    if (ref[i] != null) {
-      ref[i] = arguments[i];
-    }
-  }
-
-  return ((ref[0] << 28) | (ref[1] << 24) | (ref[2] << 20) | ref[3]);
+// Used in `IGdiGraphics.DrawString`, set string alignment and etc.
+function StringFormat(h, v, trimming, flags) {
+    if (trimming === void 0) { trimming = 0; }
+    if (flags === void 0) { flags = 0; }
+    return (h << 28) | (v << 24) | (trimming << 20) | flags;
 }
 
 // color related
@@ -256,8 +235,8 @@ function getFonts () {
 
   var baseSize = 12;
 
-  font.title = gdi.Font(font.Name, sizeOf(baseSize + 2));
-  font.time = font.small = gdi.Font(font.Name, sizeOf(baseSize));
+  font.title = gdi.Font(font.Name, scale(baseSize + 2));
+  font.time = font.small = gdi.Font(font.Name, scale(baseSize));
   if (font.Name.toLowerCase() !== font.title.Name.toLowerCase()) {
     fb.trace('Warning: failed to load font `' + fontName + "'");
     font.Name = font.title.Name;
@@ -274,7 +253,7 @@ var Font = getFonts();
 
 function getImages (_font, _color) {
   var sfCenter = StringFormat(1, 1);
-  var fontAssets = gdi.Font(Font.AssetsName, sizeOf(18));
+  var fontAssets = gdi.Font(Font.AssetsName, scale(18));
   var images = {};
   var g;
   var btnW, nobW, coverW;
@@ -305,7 +284,7 @@ function getImages (_font, _color) {
     'normal': '\ue13c',
     'close': '\ue711'
   };
-  btnW = sizeOf(40);
+  btnW = scale(40);
   for (var i in icons) {
     images[i] = getImg(icons[i], fontAssets, Color.fg, btnW, btnW);
   }
@@ -327,8 +306,8 @@ function getImages (_font, _color) {
   }
 
   // Nocover image
-  fontAssets = gdi.Font(Font.AssetsName, sizeOf(40));
-  coverW = sizeOf(85);
+  fontAssets = gdi.Font(Font.AssetsName, scale(40));
+  coverW = scale(85);
 
   images.nocover = gdi.CreateImage(coverW, coverW);
   g = images.nocover.GetGraphics();
@@ -339,12 +318,12 @@ function getImages (_font, _color) {
   images.nocover.ReleaseGraphics(g);
 
   // Slider nob image
-  nobW = sizeOf(16);
+  nobW = scale(16);
   images.nob = gdi.CreateImage(nobW, nobW);
   g = images.nob.GetGraphics();
   g.SetSmoothingMode(2);
-  g.DrawEllipse(sizeOf(2), sizeOf(2), nobW - sizeOf(4), nobW - sizeOf(4), sizeOf(1), Color.fg);
-  g.DrawEllipse(sizeOf(2), sizeOf(2), nobW - sizeOf(4), nobW - sizeOf(4), sizeOf(1), Color.fg);
+  g.DrawEllipse(scale(2), scale(2), nobW - scale(4), nobW - scale(4), scale(1), Color.fg);
+  g.DrawEllipse(scale(2), scale(2), nobW - scale(4), nobW - scale(4), scale(1), Color.fg);
   g.SetSmoothingMode(0);
   images.nob.ReleaseGraphics(g);
 
@@ -884,7 +863,7 @@ function getSeek () {
     } catch (e) {}
   };
 
-  return new Slider(Images.nob, sizeOf(2), onGetProgress, onSetProgress);
+  return new Slider(Images.nob, scale(2), onGetProgress, onSetProgress);
 }
 
 // Nowplaying info button ======================================================
@@ -983,7 +962,7 @@ CoverViewer.draw = function (gr) {
     this.nocover && gr.DrawImage(this.nocover, this.x, this.y, this.h, this.h, 0, 0, this.nocover.Width, this.nocover.Height, 0, 255);
   }
 
-  var pad = sizeOf(10);
+  var pad = scale(10);
 
   // Album title & artist.
   gr.GdiDrawText(this.trackTitle, Font.title, Color.fg, this.x + this.h + pad, this.y, this.w - this.h - pad, this.h / 2, 0);
@@ -1063,7 +1042,7 @@ function lockPanelHeight (height) {
 
 // on load =====================================================
 
-lockPanelHeight(sizeOf(60));
+lockPanelHeight(scale(60));
 
 // Init obj
 var SeekBar = getSeek();
@@ -1097,7 +1076,7 @@ var VolumeBar = (function () {
     fb.Volume = pos2vol(pos);
   }
 
-  var V = new Slider(Images.nob, sizeOf(2), getVolume, setVolume);
+  var V = new Slider(Images.nob, scale(2), getVolume, setVolume);
 
   V.onMouseWheel = function (step) {
     if (!V.visible) return;
@@ -1129,7 +1108,7 @@ function on_size () {
 
   Wallpaper.onSize();
 
-  var pad = sizeOf(10);
+  var pad = scale(10);
   var btnsW = Buttons.prev.w;
   var btnsY = Math.round((wh - btnsW) / 2);
   var firstBtn = VolumeBar.visible ? Buttons.volume : Buttons.prev;
@@ -1148,21 +1127,21 @@ function on_size () {
   }
 
   // Cover
-  var padCover = sizeOf(10);
-  var infoW = (ww > sizeOf(840) ? sizeOf(250) : sizeOf(150));
+  var padCover = scale(10);
+  var infoW = (ww > scale(840) ? scale(250) : scale(150));
   CoverViewer.visible = (firstBtn.x > wh - padCover + pad + infoW);
   CoverViewer.setBounds(padCover, padCover, wh - padCover * 2 + pad + infoW, wh - padCover * 2);
 
   // Seekbar
   var seekX = CoverViewer.x + CoverViewer.w + pad;
   var seekW = firstBtn.x - pad - pad - seekX;
-  SeekBar.visible = seekW > sizeOf(150);
-  SeekBar.setBounds(seekX, (wh - sizeOf(20)) / 2 - sizeOf(10), seekW, sizeOf(20));
+  SeekBar.visible = seekW > scale(150);
+  SeekBar.setBounds(seekX, (wh - scale(20)) / 2 - scale(10), seekW, scale(20));
 
   // VolumeBar
   var volX = firstBtn.x + firstBtn.w + pad;
   var volW = Buttons.closeVolume.x - volX - pad;
-  VolumeBar.setBounds(volX, (wh - sizeOf(20)) / 2, volW, sizeOf(20));
+  VolumeBar.setBounds(volX, (wh - scale(20)) / 2, volW, scale(20));
 }
 
 function on_paint (gr) {
