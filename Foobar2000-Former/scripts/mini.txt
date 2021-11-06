@@ -1,0 +1,14 @@
+﻿// ==PREPROCESSOR==
+// @name "Fomer Mini"
+// @author "keperlia"
+// @version "1.0"
+// @feature "dragdrop"
+// @import "%fb2k_path%skins\scripts\js\Panel.js"
+// @import "%fb2k_path%skins\scripts\js\Object.js"
+// @import "%fb2k_path%skins\scripts\js\Animation.js"
+// @import "%fb2k_path%skins\scripts\js\Common.js"
+// @import "%fb2k_path%skins\scripts\js\Function.js"
+// @import "%fb2k_path%skins\scripts\js\Image.js"
+// @import "%fb2k_path%skins\scripts\js\Mini.js"
+// ==/PREPROCESSOR==
+window.DlgCode = 0x0004;	//DLGC_WANTALLKEYS;

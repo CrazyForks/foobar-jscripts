@@ -1,3 +1,4 @@
 *.bak
 *.WinMerge
 .gitignore
+.vscode
